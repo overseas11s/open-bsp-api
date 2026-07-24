@@ -49,11 +49,30 @@ export type InstagramOrganizationAddressExtra = {
   needs_reauth?: string; // ISO; set when a refresh failed and re-login is required
 };
 
+// Slack has two row shapes: the workspace anchor (address = team id,
+// agent_id null) and per-member identities (address = `${team}:${user}`,
+// agent_id set) — the latter holds the member's xoxp user token. Token keys
+// accept null so a disconnect can clear them through the merge_update
+// trigger.
+export type SlackOrganizationAddressExtra = {
+  // anchor
+  team_name?: string;
+  enterprise_id?: string | null;
+  // personal
+  team_id?: string;
+  slack_user_id?: string;
+  access_token?: string | null; // xoxp user token
+  refresh_token?: string | null; // present when token rotation is enabled
+  expires_at?: string; // ISO; rotated-token expiry
+  scopes?: string; // comma-separated granted user scopes
+};
+
 // Union — the column accepts either shape; consumers narrow via the row's
-// `service` column (or via a cast at WA-/IG-specific read sites).
+// `service` column (or via a cast at service-specific read sites).
 export type OrganizationAddressExtra =
   | WhatsAppOrganizationAddressExtra
-  | InstagramOrganizationAddressExtra;
+  | InstagramOrganizationAddressExtra
+  | SlackOrganizationAddressExtra;
 
 export type ConversationExtra = {
   memory?: Memory;
@@ -61,6 +80,12 @@ export type ConversationExtra = {
   archived?: string;
   pinned?: string;
   default_agent_id?: string;
+  // Slack (service = 'slack'; conversation_address = channel id)
+  channel_type?: "im" | "mpim" | "private_channel" | "public_channel";
+  topic?: string;
+  purpose?: string;
+  /** im only: the counterpart Slack user id */
+  user?: string;
   /*
   test_run?: {
     reference_conversation: {
@@ -101,11 +126,22 @@ export type InstagramContactAddressExtra = {
   replaced_by_address?: string;
 };
 
+export type SlackContactAddressExtra = {
+  name?: string;
+  picture?: string;
+  team_id?: string;
+  synced?: { // directory sync (same trigger mechanism as WhatsApp)
+    name: string;
+    action: "add" | "remove";
+  };
+};
+
 // Union — the column accepts either shape; consumers narrow via the row's
 // `service` column (or via the per-service Row/Insert aliases below).
 export type ContactAddressExtra =
   | WhatsAppContactAddressExtra
-  | InstagramContactAddressExtra;
+  | InstagramContactAddressExtra
+  | SlackContactAddressExtra;
 
 // Function tools have a JSON input (data part).
 export type LocalFunctionToolConfig = {

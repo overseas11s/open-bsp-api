@@ -29,6 +29,9 @@ Monetization (medium-term)
 - [ ] Realtime visibility updates — subscribe the UI to `conversations_agents`
       changes so a newly-visible conversation appears without refresh (needs the
       table in the realtime publication and possibly `webhook_table`)
+- [ ] Token-rotation cron — schedule `slack-management/refresh-tokens` (pg_cron,
+      like Instagram's) once rotation is enabled on the Slack app; it is a no-op
+      until connections carry a refresh_token
 
 ## General
 
