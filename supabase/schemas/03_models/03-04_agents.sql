@@ -30,6 +30,16 @@ foreign key (user_id)
 references auth.users(id)
 on delete cascade;
 
+-- Declared here (not in 03-01) because agents is created after
+-- organizations_addresses. `set null` (not cascade): deleting a member must not
+-- silently delete the address row and cascade away its conversations; the
+-- address flips to ownerless and offboarding handles it explicitly.
+alter table only public.organizations_addresses
+add constraint organizations_addresses_agent_id_fkey
+foreign key (agent_id)
+references public.agents(id)
+on delete set null;
+
 create index agents_user_id_idx
 on public.agents
 using btree (user_id);

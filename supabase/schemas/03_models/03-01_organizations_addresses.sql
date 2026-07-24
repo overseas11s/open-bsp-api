@@ -2,6 +2,10 @@ create table public.organizations_addresses (
   organization_id uuid not null,
   service public.service not null,
   address text not null,
+  -- Owner of a personal account (e.g. a member's Slack identity). null = shared
+  -- org-wide account (today's behavior for every service). The FK to agents is
+  -- declared in 03-04_agents.sql because agents is created after this table.
+  agent_id uuid,
   extra jsonb,
   status text default 'connected'::text not null,
   created_at timestamp with time zone default now() not null,
@@ -38,6 +42,10 @@ after insert or update
 on public.organizations_addresses
 for each row
 execute function public.notify_webhook();
+
+create index organizations_addresses_agent_id_idx
+on public.organizations_addresses
+using btree (agent_id);
 
 create index organizations_addresses_waba_id_idx
 on public.organizations_addresses

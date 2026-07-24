@@ -143,46 +143,61 @@ create function public.before_insert_on_messages() returns trigger
 language plpgsql
 as $$
 begin
+  -- Transition compat (direction → sender_address / contact_address+
+  -- group_address → conversation_address): legacy writers still send
+  -- direction + contact_address/group_address; new writers send
+  -- sender_address/conversation_address only. Derive whichever side is
+  -- missing so both stay consistent until direction and the legacy address
+  -- columns are dropped.
+  if new.conversation_address is null then
+    new.conversation_address := coalesce(new.group_address, new.contact_address);
+  end if;
+
+  if new.sender_address is null and new.direction is not null then
+    new.sender_address := case new.direction
+      when 'outgoing'::public.direction then new.organization_address
+      when 'incoming'::public.direction then new.contact_address
+      else null -- internal
+    end;
+  elsif new.direction is null then
+    new.direction := case
+      when new.sender_address is null then 'internal'::public.direction
+      when new.sender_address = new.organization_address then 'outgoing'::public.direction
+      else 'incoming'::public.direction
+    end;
+  end if;
+
   -- If conversation_id is already provided, proceed as is
   if new.conversation_id is not null then
     return new;
   end if;
 
-  -- Look up conversation_id from conversation table. Group conversations
-  -- are keyed by group_address alone (contact_address null on the
-  -- conversation; the per-message sender lives on messages.contact_address).
-  if new.group_address is not null then
-    select id into new.conversation_id
-    from public.conversations
-    where organization_address = new.organization_address
-      and group_address = new.group_address
-      and service = new.service
-      and status = 'active'
-    order by created_at desc
-    limit 1;
-  else
-    select id into new.conversation_id
-    from public.conversations
-    where organization_address = new.organization_address
-      and contact_address is not distinct from new.contact_address
-      and group_address is null
-      and service = new.service
-      and status = 'active'
-    order by created_at desc
-    limit 1;
-  end if;
+  -- Look up conversation_id from conversation table. Conversations are keyed
+  -- by conversation_address (the peer — individual or group/channel; the
+  -- per-message author lives on messages.sender_address). Local-service
+  -- messages have no peer, hence `is not distinct from`.
+  select id into new.conversation_id
+  from public.conversations
+  where organization_address = new.organization_address
+    and conversation_address is not distinct from new.conversation_address
+    and service = new.service
+    and status = 'active'
+  order by created_at desc
+  limit 1;
 
   -- Create conversation if it doesn't exist
   if new.conversation_id is null then
     insert into public.conversations (
       organization_id,
       organization_address,
+      conversation_address,
       contact_address,
       group_address,
       service
     ) values (
       new.organization_id,
       new.organization_address,
+      new.conversation_address,
       case when new.group_address is null then new.contact_address end,
       new.group_address,
       new.service
@@ -194,17 +209,19 @@ begin
 end;
 $$;
 
--- BEFORE UPDATE: direction is set once at insert and never changes. Upserts
--- (onConflict external_id) carry a direction in the incoming row, so without
--- this an echo/status row could flip an existing message's direction — e.g. an
--- Instagram self-message echo (which we record as incoming) landing on the
--- outgoing row we already sent. Keep the original direction; updates only ever
--- merge content/status.
+-- BEFORE UPDATE: authorship is set once at insert and never changes. Upserts
+-- (onConflict external_id) carry direction/sender in the incoming row, so
+-- without this an echo/status row could flip an existing message's authorship
+-- — e.g. an Instagram self-message echo (which we record as incoming) landing
+-- on the outgoing row we already sent. Keep the original values; updates only
+-- ever merge content/status.
 create function public.preserve_message_direction() returns trigger
 language plpgsql
 as $$
 begin
   new.direction := old.direction;
+  new.sender_address := old.sender_address;
+  new.conversation_address := old.conversation_address;
   return new;
 end;
 $$;
@@ -307,11 +324,18 @@ as $$
 declare
   _existing_address text;
 begin
-  -- Validate that external services require either contact_address or group_address
-  if new.service <> 'local' and new.contact_address is null and new.group_address is null then
-    raise exception 'Conversations with external services require either contact_address or group_address';
+  -- Transition compat: derive conversation_address from the legacy columns.
+  if new.conversation_address is null then
+    new.conversation_address := coalesce(new.group_address, new.contact_address);
   end if;
 
+  -- Conversations with external services must have a peer
+  if new.service <> 'local' and new.conversation_address is null then
+    raise exception 'Conversations with external services require a conversation_address';
+  end if;
+
+  -- Contact bootstrap applies to legacy individual-peer writers only; new
+  -- writers manage contacts_addresses themselves (soft reference by design).
   if new.contact_address is null then
     return new;
   end if;

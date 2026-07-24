@@ -18,6 +18,17 @@ create table public.messages (
   -- timeline. Soft reference like content.re_message_id — not a FK, so it
   -- tolerates out-of-order arrival and out-of-window roots.
   thread_id text,
+  -- Unified peer addressing (transition away from direction + contact_address/
+  -- group_address; both sides kept in sync by before_insert_on_messages until
+  -- readers migrate and the legacy columns get dropped):
+  -- conversation_address — the peer the conversation is with (individual or
+  --   group/channel). Soft reference, like thread_id.
+  -- sender_address — who authored the message; does NOT imply an agent.
+  --   null                    → internal (tool calls/results, notes)
+  --   = organization_address  → sent by the connected account ("outgoing")
+  --   anything else           → sent by a peer ("incoming")
+  conversation_address text,
+  sender_address text,
   ----
   content jsonb not null,
   status jsonb default jsonb_build_object('pending', now()) not null,
@@ -97,7 +108,8 @@ after insert
 on public.messages
 for each row
 when (
-  new.direction = 'incoming'::public.direction
+  new.sender_address is not null
+  and new.sender_address <> new.organization_address
   and (new.status ->> 'pending') is not null
 )
 execute function public.edge_function('/agent-client', 'post');
@@ -107,7 +119,8 @@ after update
 on public.messages
 for each row
 when (
-  new.direction = 'incoming'::public.direction
+  new.sender_address is not null
+  and new.sender_address <> new.organization_address
   and new.service <> 'local'::public.service
   and (
     (old.status ->> 'read') <> (new.status ->> 'read')
@@ -122,13 +135,14 @@ after insert
 on public.messages
 for each row
 when (
-  new.direction = 'outgoing'::public.direction
+  new.sender_address = new.organization_address
   and new.timestamp <= now()
   and (new.status ->> 'pending') is not null
 )
 execute function public.dispatcher_edge_function();
 
--- There are four sources of outgoing messages:
+-- There are four sources of account-authored (sender = organization_address)
+-- messages:
 -- 1. history webhook
 -- 2. messages echoes webhook (messages sent from WA Business app)
 -- 3. UI
@@ -141,7 +155,7 @@ after insert
 on public.messages
 for each row
 when (
-  new.direction = 'outgoing'::public.direction
+  new.sender_address = new.organization_address
   and new.service <> 'local'::public.service
   and new.timestamp <= now() -- messages not in the future
   and new.timestamp >= now() - interval '10 seconds' -- recent messages

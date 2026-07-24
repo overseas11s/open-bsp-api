@@ -3,8 +3,14 @@ create table public.conversations (
   id uuid default gen_random_uuid() not null,
   service public.service not null,
   organization_address text not null,
-  contact_address text, -- one of contact_address or group_address
-  group_address text,   -- must be not null for whatsapp service
+  contact_address text, -- legacy, one of contact_address or group_address
+  group_address text,   -- legacy, must be not null for whatsapp service
+  -- The peer this conversation is with — an individual or a group/channel
+  -- address (e.g. WhatsApp phone/group JID, Slack channel id). Soft reference
+  -- (no FK): peers span contacts and external containers. Replaces
+  -- contact_address/group_address; those stay populated by legacy writers
+  -- until readers migrate, then get dropped.
+  conversation_address text,
   name text,
   extra jsonb,
   status text default 'active'::text not null,
@@ -22,11 +28,13 @@ alter table only public.conversations
 add constraint conversations_pkey
 primary key (id);
 
+-- Cascade (decided 2026-07-24): deleting a connected account deletes its
+-- conversations, and messages cascade via conversations_id in turn.
 alter table only public.conversations
 add constraint conversations_organization_address_fkey
 foreign key (organization_id, organization_address)
 references public.organizations_addresses(organization_id, address)
-on delete no action;
+on delete cascade;
 
 alter table only public.conversations
 add constraint conversations_contact_address_fkey
@@ -53,6 +61,10 @@ using btree (contact_address);
 create index conversations_group_address_idx
 on public.conversations
 using btree (group_address);
+
+create index conversations_conversation_address_idx
+on public.conversations
+using btree (conversation_address);
 
 create trigger handle_new_conversation
 before insert

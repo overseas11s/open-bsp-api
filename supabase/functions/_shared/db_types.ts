@@ -750,6 +750,7 @@ export type Database = {
       conversations: {
         Row: {
           contact_address: string | null
+          conversation_address: string | null
           created_at: string
           extra: Json | null
           group_address: string | null
@@ -763,6 +764,7 @@ export type Database = {
         }
         Insert: {
           contact_address?: string | null
+          conversation_address?: string | null
           created_at?: string
           extra?: Json | null
           group_address?: string | null
@@ -776,6 +778,7 @@ export type Database = {
         }
         Update: {
           contact_address?: string | null
+          conversation_address?: string | null
           created_at?: string
           extra?: Json | null
           group_address?: string | null
@@ -804,6 +807,55 @@ export type Database = {
           },
           {
             foreignKeyName: "conversations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      conversations_agents: {
+        Row: {
+          agent_id: string
+          conversation_id: string
+          created_at: string
+          extra: Json | null
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          agent_id: string
+          conversation_id: string
+          created_at?: string
+          extra?: Json | null
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          agent_id?: string
+          conversation_id?: string
+          created_at?: string
+          extra?: Json | null
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversations_agents_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversations_agents_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversations_agents_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -867,6 +919,7 @@ export type Database = {
           agent_id: string | null
           contact_address: string | null
           content: Json
+          conversation_address: string | null
           conversation_id: string
           created_at: string
           direction: Database["public"]["Enums"]["direction"]
@@ -875,6 +928,7 @@ export type Database = {
           id: string
           organization_address: string
           organization_id: string
+          sender_address: string | null
           service: Database["public"]["Enums"]["service"]
           status: Json
           thread_id: string | null
@@ -885,6 +939,7 @@ export type Database = {
           agent_id?: string | null
           contact_address?: string | null
           content: Json
+          conversation_address?: string | null
           conversation_id: string
           created_at?: string
           direction: Database["public"]["Enums"]["direction"]
@@ -893,6 +948,7 @@ export type Database = {
           id?: string
           organization_address: string
           organization_id: string
+          sender_address?: string | null
           service: Database["public"]["Enums"]["service"]
           status?: Json
           thread_id?: string | null
@@ -903,6 +959,7 @@ export type Database = {
           agent_id?: string | null
           contact_address?: string | null
           content?: Json
+          conversation_address?: string | null
           conversation_id?: string
           created_at?: string
           direction?: Database["public"]["Enums"]["direction"]
@@ -911,6 +968,7 @@ export type Database = {
           id?: string
           organization_address?: string
           organization_id?: string
+          sender_address?: string | null
           service?: Database["public"]["Enums"]["service"]
           status?: Json
           thread_id?: string | null
@@ -1015,6 +1073,7 @@ export type Database = {
       organizations_addresses: {
         Row: {
           address: string
+          agent_id: string | null
           created_at: string
           extra: Json | null
           organization_id: string
@@ -1024,6 +1083,7 @@ export type Database = {
         }
         Insert: {
           address: string
+          agent_id?: string | null
           created_at?: string
           extra?: Json | null
           organization_id: string
@@ -1033,6 +1093,7 @@ export type Database = {
         }
         Update: {
           address?: string
+          agent_id?: string | null
           created_at?: string
           extra?: Json | null
           organization_id?: string
@@ -1041,6 +1102,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "organizations_addresses_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "organizations_addresses_organization_id_fkey"
             columns: ["organization_id"]
@@ -1164,6 +1232,10 @@ export type Database = {
           p_until?: string
         }
         Returns: Json
+      }
+      is_conversation_visible: {
+        Args: { conv_addr: string; conv_id: string; conv_org: string }
+        Returns: boolean
       }
       member_self_update_rules: {
         Args: {
