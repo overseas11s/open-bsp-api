@@ -32,6 +32,16 @@ Monetization (medium-term)
 - [ ] Token-rotation cron — schedule `slack-management/refresh-tokens` (pg_cron,
       like Instagram's) once rotation is enabled on the Slack app; it is a no-op
       until connections carry a refresh_token
+- [ ] Review API keys — there is user-scoped content now; today API keys only
+      pass the org-wide visibility branch (auth.uid() is null), revisit whether
+      that stays the contract or keys grow a user scope
+- [ ] Review webhooks — allow more than one table per webhook
+- [ ] Review re-syncs — e.g. re-sync since the last message; does a media
+      message re-sync overwrite the internal file uri (internal://media/…),
+      causing loss/re-upload/content re-extraction?
+- [ ] Offer user-scoped WhatsApp/Instagram connections — the visibility model
+      already supports it (personal address = owner-only, branch 2 of
+      is_conversation_visible); needs management/UI work
 
 ## General
 

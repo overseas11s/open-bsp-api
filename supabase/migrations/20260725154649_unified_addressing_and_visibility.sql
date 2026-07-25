@@ -14,9 +14,12 @@ drop policy "members can read their orgs messages" on "public"."messages";
 
 alter table "public"."conversations" drop constraint "conversations_organization_address_fkey";
 
+drop index if exists "public"."conversations_group_address_idx";
+
 
   create table "public"."conversations_agents" (
     "organization_id" uuid not null,
+    "organization_address" text not null,
     "conversation_id" uuid not null,
     "agent_id" uuid not null,
     "extra" jsonb,
@@ -37,6 +40,8 @@ alter table "public"."organizations_addresses" add column "agent_id" uuid;
 
 CREATE INDEX conversations_agents_agent_id_idx ON public.conversations_agents USING btree (agent_id);
 
+CREATE INDEX conversations_agents_organization_address_idx ON public.conversations_agents USING btree (organization_id, organization_address);
+
 CREATE INDEX conversations_agents_organization_id_idx ON public.conversations_agents USING btree (organization_id);
 
 CREATE UNIQUE INDEX conversations_agents_pkey ON public.conversations_agents USING btree (conversation_id, agent_id);
@@ -55,11 +60,15 @@ alter table "public"."conversations_agents" add constraint "conversations_agents
 
 alter table "public"."conversations_agents" validate constraint "conversations_agents_conversation_id_fkey";
 
+alter table "public"."conversations_agents" add constraint "conversations_agents_organization_address_fkey" FOREIGN KEY (organization_id, organization_address) REFERENCES public.organizations_addresses(organization_id, address) ON DELETE CASCADE not valid;
+
+alter table "public"."conversations_agents" validate constraint "conversations_agents_organization_address_fkey";
+
 alter table "public"."conversations_agents" add constraint "conversations_agents_organization_id_fkey" FOREIGN KEY (organization_id) REFERENCES public.organizations(id) ON DELETE CASCADE not valid;
 
 alter table "public"."conversations_agents" validate constraint "conversations_agents_organization_id_fkey";
 
-alter table "public"."organizations_addresses" add constraint "organizations_addresses_agent_id_fkey" FOREIGN KEY (agent_id) REFERENCES public.agents(id) ON DELETE SET NULL not valid;
+alter table "public"."organizations_addresses" add constraint "organizations_addresses_agent_id_fkey" FOREIGN KEY (agent_id) REFERENCES public.agents(id) ON DELETE RESTRICT not valid;
 
 alter table "public"."organizations_addresses" validate constraint "organizations_addresses_agent_id_fkey";
 
@@ -69,19 +78,32 @@ alter table "public"."conversations" validate constraint "conversations_organiza
 
 set check_function_bodies = off;
 
-CREATE OR REPLACE FUNCTION public.is_conversation_visible(conv_id uuid, conv_org uuid, conv_addr text)
+CREATE OR REPLACE FUNCTION public.is_conversation_visible(conv_id uuid, conv_org uuid, conv_addr text, conv_service public.service)
  RETURNS boolean
  LANGUAGE sql
  STABLE SECURITY DEFINER
  SET search_path TO ''
 AS $function$
   select
-    exists (
-      select 1 from public.organizations_addresses oa
-      where oa.organization_id = conv_org
-        and oa.address = conv_addr
-        and oa.agent_id is null
+    -- 1. Org-wide shared inbox: the conversation hangs off an ownerless
+    --    account on a customer-facing service. No auth.uid() involved — the
+    --    "is the caller in this org" half lives in the RLS policy
+    --    (get_authorized_orgs). The service guard keeps the ownerless Slack
+    --    workspace anchor out of this branch. This is also the only branch
+    --    an API key (auth.uid() is null) can ever pass.
+    (
+      conv_service not in ('slack', 'discord', 'teams')
+      and exists (
+        select 1 from public.organizations_addresses oa
+        where oa.organization_id = conv_org
+          and oa.address = conv_addr
+          and oa.agent_id is null
+      )
     )
+    -- 2. Account owner: the conversation hangs off a PERSONAL account whose
+    --    owner is the caller (e.g. a future personal WhatsApp/mailbox).
+    --    Slack conversations don't use this branch — they anchor to the
+    --    workspace, not to the member's T…:U… row — they rely on 3.
     or exists (
       select 1
       from public.organizations_addresses oa
@@ -90,6 +112,9 @@ AS $function$
         and oa.address = conv_addr
         and a.user_id = auth.uid()
     )
+    -- 3. Participant: a conversations_agents row for THIS conversation names
+    --    an agent that is the caller. The Slack path, mirroring channel/DM
+    --    membership; keyed on the conversation id, not the account.
     or exists (
       select 1
       from public.conversations_agents ca
@@ -108,9 +133,9 @@ AS $function$
 declare
   _existing_address text;
 begin
-  -- Transition compat: derive conversation_address from the legacy columns.
+  -- Transition compat: derive conversation_address from the legacy column.
   if new.conversation_address is null then
-    new.conversation_address := coalesce(new.group_address, new.contact_address);
+    new.conversation_address := new.contact_address;
   end if;
 
   -- Conversations with external services must have a peer
@@ -154,14 +179,13 @@ CREATE OR REPLACE FUNCTION public.before_insert_on_messages()
  LANGUAGE plpgsql
 AS $function$
 begin
-  -- Transition compat (direction → sender_address / contact_address+
-  -- group_address → conversation_address): legacy writers still send
-  -- direction + contact_address/group_address; new writers send
-  -- sender_address/conversation_address only. Derive whichever side is
-  -- missing so both stay consistent until direction and the legacy address
-  -- columns are dropped.
+  -- Transition compat (direction → sender_address, contact_address →
+  -- conversation_address): legacy writers still send direction +
+  -- contact_address; new writers send sender_address/conversation_address
+  -- only. Derive whichever side is missing so both stay consistent until
+  -- direction and contact_address are dropped.
   if new.conversation_address is null then
-    new.conversation_address := coalesce(new.group_address, new.contact_address);
+    new.conversation_address := new.contact_address;
   end if;
 
   if new.sender_address is null and new.direction is not null then
@@ -196,21 +220,25 @@ begin
   order by created_at desc
   limit 1;
 
-  -- Create conversation if it doesn't exist
+  -- Create conversation if it doesn't exist. The legacy contact_address is
+  -- only meaningful on direct chats (peer = a contact); in group messages
+  -- contact_address carries the per-message sender, which must not become
+  -- the conversation's peer.
   if new.conversation_id is null then
     insert into public.conversations (
       organization_id,
       organization_address,
       conversation_address,
       contact_address,
-      group_address,
       service
     ) values (
       new.organization_id,
       new.organization_address,
       new.conversation_address,
-      case when new.group_address is null then new.contact_address end,
-      new.group_address,
+      case
+        when new.contact_address = new.conversation_address
+        then new.contact_address
+      end,
       new.service
     )
     returning id into new.conversation_id;
@@ -242,25 +270,35 @@ grant truncate on table "public"."conversations_agents" to "anon";
 
 grant references on table "public"."conversations_agents" to "authenticated";
 
+grant select on table "public"."conversations_agents" to "authenticated";
+
 grant trigger on table "public"."conversations_agents" to "authenticated";
 
 grant truncate on table "public"."conversations_agents" to "authenticated";
 
+grant delete on table "public"."conversations_agents" to "service_role";
+
+grant insert on table "public"."conversations_agents" to "service_role";
+
 grant references on table "public"."conversations_agents" to "service_role";
+
+grant select on table "public"."conversations_agents" to "service_role";
 
 grant trigger on table "public"."conversations_agents" to "service_role";
 
 grant truncate on table "public"."conversations_agents" to "service_role";
 
+grant update on table "public"."conversations_agents" to "service_role";
 
-  create policy "members can read their own conversation memberships"
+
+  create policy "members can read memberships of visible conversations"
   on "public"."conversations_agents"
   as permissive
   for select
   to authenticated
 using ((EXISTS ( SELECT 1
-   FROM public.agents a
-  WHERE ((a.id = conversations_agents.agent_id) AND (a.user_id = auth.uid())))));
+   FROM public.conversations c
+  WHERE (c.id = conversations_agents.conversation_id))));
 
 
 
@@ -269,7 +307,7 @@ using ((EXISTS ( SELECT 1
   as permissive
   for all
   to authenticated, anon
-using (((organization_id IN ( SELECT public.get_authorized_orgs('member'::public.role) AS get_authorized_orgs)) AND public.is_conversation_visible(id, organization_id, organization_address)));
+using (((organization_id IN ( SELECT public.get_authorized_orgs('member'::public.role) AS get_authorized_orgs)) AND public.is_conversation_visible(id, organization_id, organization_address, service)));
 
 
 
@@ -278,7 +316,7 @@ using (((organization_id IN ( SELECT public.get_authorized_orgs('member'::public
   as permissive
   for insert
   to authenticated, anon
-with check (((organization_id IN ( SELECT public.get_authorized_orgs('member'::public.role) AS get_authorized_orgs)) AND public.is_conversation_visible(conversation_id, organization_id, organization_address)));
+with check (((organization_id IN ( SELECT public.get_authorized_orgs('member'::public.role) AS get_authorized_orgs)) AND public.is_conversation_visible(conversation_id, organization_id, organization_address, service)));
 
 
 
@@ -287,7 +325,7 @@ with check (((organization_id IN ( SELECT public.get_authorized_orgs('member'::p
   as permissive
   for select
   to authenticated, anon
-using (((organization_id IN ( SELECT public.get_authorized_orgs('member'::public.role) AS get_authorized_orgs)) AND public.is_conversation_visible(conversation_id, organization_id, organization_address)));
+using (((organization_id IN ( SELECT public.get_authorized_orgs('member'::public.role) AS get_authorized_orgs)) AND public.is_conversation_visible(conversation_id, organization_id, organization_address, service)));
 
 
 CREATE TRIGGER set_extra BEFORE UPDATE ON public.conversations_agents FOR EACH ROW WHEN ((new.extra IS NOT NULL)) EXECUTE FUNCTION public.merge_update('extra');
@@ -304,20 +342,26 @@ CREATE TRIGGER pause_conversation_on_human_message AFTER INSERT ON public.messag
 
 
 
--- Backfill (hand-written DML — db diff emits DDL only).
---
--- Derive the new addressing columns on existing rows:
+-- ============================================================================
+-- Hand-written tail (db diff emits DDL only, and in its own order):
+-- 1. backfill the new addressing columns — needs group_address as a source,
+--    so its drop is moved below the backfill;
+-- 2. drop the never-productive group_address columns;
+-- 3. explicit grants for the new table (default privileges for
+--    postgres-created tables only grant truncate/references/trigger to the
+--    API roles).
+-- ============================================================================
+
+-- Backfill. Derivation on existing rows:
 --   conversation_address = coalesce(group_address, contact_address)
 --   sender_address       = organization_address for outgoing,
 --                          contact_address for incoming,
 --                          null for internal
---
 -- User triggers are disabled during the backfill: without this,
 -- z_notify_webhook_* would enqueue one pg_net HTTP post per historic row and
 -- set_updated_at would rewrite updated_at (breaking sync ordering). ALTER
--- TABLE takes an access-exclusive lock, so concurrent writes simply queue
--- until the migration transaction commits — no row sneaks past the disabled
--- triggers.
+-- TABLE takes an access-exclusive lock, so concurrent writes queue until the
+-- migration transaction commits — no row sneaks past the disabled triggers.
 
 alter table public.conversations disable trigger user;
 alter table public.messages disable trigger user;
@@ -341,8 +385,15 @@ where conversation_address is null
 alter table public.conversations enable trigger user;
 alter table public.messages enable trigger user;
 
--- Explicit grants (hand-written): default privileges for postgres-created
--- tables only grant truncate/references/trigger to the API roles, so the
--- generated diff leaves the new table unreadable/unwritable via the API.
+-- group_address existed but never went productive; its useful content now
+-- lives in conversation_address (backfill above).
+alter table "public"."conversations" drop column "group_address";
+
+alter table "public"."messages" drop column "group_address";
+
+-- Grants for the new table. service_role writes memberships (webhook/
+-- management functions); members only read (RLS narrows rows to their own
+-- visible conversations; no anon — API keys never see membership-gated
+-- content).
 grant select, insert, update, delete on table public.conversations_agents to service_role;
 grant select on table public.conversations_agents to authenticated;

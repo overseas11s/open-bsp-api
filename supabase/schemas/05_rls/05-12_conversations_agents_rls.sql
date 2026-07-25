@@ -8,6 +8,12 @@ alter table public.conversations_agents enable row level security;
 -- with the caller's rights, so conversations RLS scopes it; no recursion:
 -- that policy checks membership through the SECURITY DEFINER
 -- is_conversation_visible(), which reads this table without re-entering RLS.
+--
+-- `to authenticated` only — no anon, unlike the other policies: anon is the
+-- API-key path, and membership can never matter to an API key (the only
+-- visibility branch that reads this table requires auth.uid(); API keys see
+-- org-wide content only). Membership is a user concept. The table grants
+-- match (select granted to authenticated, not anon).
 create policy "members can read memberships of visible conversations"
 on public.conversations_agents
 for select

@@ -26,6 +26,12 @@ security definer
 set search_path to ''
 as $$
   select
+    -- 1. Org-wide shared inbox: the conversation hangs off an ownerless
+    --    account on a customer-facing service. No auth.uid() involved — the
+    --    "is the caller in this org" half lives in the RLS policy
+    --    (get_authorized_orgs). The service guard keeps the ownerless Slack
+    --    workspace anchor out of this branch. This is also the only branch
+    --    an API key (auth.uid() is null) can ever pass.
     (
       conv_service not in ('slack', 'discord', 'teams')
       and exists (
@@ -35,6 +41,10 @@ as $$
           and oa.agent_id is null
       )
     )
+    -- 2. Account owner: the conversation hangs off a PERSONAL account whose
+    --    owner is the caller (e.g. a future personal WhatsApp/mailbox).
+    --    Slack conversations don't use this branch — they anchor to the
+    --    workspace, not to the member's T…:U… row — they rely on 3.
     or exists (
       select 1
       from public.organizations_addresses oa
@@ -43,6 +53,9 @@ as $$
         and oa.address = conv_addr
         and a.user_id = auth.uid()
     )
+    -- 3. Participant: a conversations_agents row for THIS conversation names
+    --    an agent that is the caller. The Slack path, mirroring channel/DM
+    --    membership; keyed on the conversation id, not the account.
     or exists (
       select 1
       from public.conversations_agents ca
