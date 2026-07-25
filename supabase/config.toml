@@ -96,3 +96,8 @@ entrypoint = "./functions/storage-gc/index.ts"
 verify_jwt = false
 import_map = "./functions/deno.json"
 entrypoint = "./functions/slack-management/index.ts"
+
+[functions.slack-webhook]
+verify_jwt = false
+import_map = "./functions/deno.json"
+entrypoint = "./functions/slack-webhook/index.ts"

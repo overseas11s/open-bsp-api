@@ -177,6 +177,16 @@ type UnsupportedPart = DataPart<
 // Synthetic content for messaging_referral events (no message attached).
 type ReferralPart = DataPart<"referral", InstagramReferral>;
 
+// Slack/Discord-style reactions: multi-user, multi-emoji, with explicit
+// add/remove semantics — modeled as data (Meta reactions stay TextPart kind
+// 'reaction'). One row per reaction event; re_message_id points at the
+// reacted message's external id.
+export type ReactionPart = DataPart<"reaction", {
+  /** Emoji name as the service reports it, e.g. "thumbsup" */
+  name: string;
+  action: "added" | "removed";
+}>;
+
 // Shared Instagram post/reel (attachment types ig_post, ig_reel, reel). Unlike
 // real media, the attachment `payload.url` is a public instagram.com permalink
 // (an HTML page, not a downloadable CDN file), so these are modeled as data — a
@@ -239,6 +249,7 @@ export type IncomingMessage =
     | MediaPlaceholderPart
     | UnsupportedPart
     | ReferralPart
+    | ReactionPart
     | SharePart
     | Parts
   );

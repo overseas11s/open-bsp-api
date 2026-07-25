@@ -193,3 +193,44 @@ export function buildAuthorizeUrl(
   if (state) url.searchParams.set("state", state);
   return url.toString();
 }
+
+/** Fetches a single user's profile (any workspace user token works). */
+export async function usersInfo(
+  token: string,
+  user: string,
+): Promise<SlackUser | null> {
+  try {
+    const payload = await slackApi("users.info", token, { user });
+    return (payload.user ?? null) as SlackUser | null;
+  } catch (error) {
+    log.warn(`Slack users.info failed for ${user}`, error);
+    return null;
+  }
+}
+
+/**
+ * Full list of installations an event applies to. The event payload itself
+ * carries at most one authorization; this API (app-level xapp token) returns
+ * them all. Falls back to null when no app token is configured — callers then
+ * use the payload's partial list.
+ */
+export async function eventAuthorizations(
+  event_context: string,
+): Promise<Array<{ user_id: string; is_bot?: boolean }> | null> {
+  const appToken = Deno.env.get("SLACK_APP_TOKEN");
+  if (!appToken) return null;
+
+  try {
+    const payload = await slackApi(
+      "apps.event.authorizations.list",
+      appToken,
+      { event_context },
+    );
+    return (payload.authorizations ?? []) as Array<
+      { user_id: string; is_bot?: boolean }
+    >;
+  } catch (error) {
+    log.warn("apps.event.authorizations.list failed", error);
+    return null;
+  }
+}
