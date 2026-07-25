@@ -11,7 +11,7 @@ using (
     select public.get_authorized_orgs('member')
   )
   and public.is_conversation_visible(
-    conversation_id, organization_id, organization_address
+    conversation_id, organization_id, organization_address, service
   )
 );
 
@@ -26,6 +26,6 @@ with check (
     select public.get_authorized_orgs('member')
   )
   and public.is_conversation_visible(
-    conversation_id, organization_id, organization_address
+    conversation_id, organization_id, organization_address, service
   )
 );

@@ -1084,7 +1084,6 @@ export type Database = {
           service: Database["public"]["Enums"]["service"]
           status: string
           updated_at: string
-          visibility: string
         }
         Insert: {
           address: string
@@ -1095,7 +1094,6 @@ export type Database = {
           service: Database["public"]["Enums"]["service"]
           status?: string
           updated_at?: string
-          visibility?: string
         }
         Update: {
           address?: string
@@ -1106,7 +1104,6 @@ export type Database = {
           service?: Database["public"]["Enums"]["service"]
           status?: string
           updated_at?: string
-          visibility?: string
         }
         Relationships: [
           {
@@ -1241,7 +1238,12 @@ export type Database = {
         Returns: Json
       }
       is_conversation_visible: {
-        Args: { conv_addr: string; conv_id: string; conv_org: string }
+        Args: {
+          conv_addr: string
+          conv_id: string
+          conv_org: string
+          conv_service: Database["public"]["Enums"]["service"]
+        }
         Returns: boolean
       }
       member_self_update_rules: {
