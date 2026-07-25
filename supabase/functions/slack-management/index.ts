@@ -312,10 +312,12 @@ app.post("/slack-management/sync", async (c) => {
   return c.json({ sync: summary });
 });
 
-// Disconnect the calling member: revoke the token and delete their personal
-// address row — the FK cascade drops their visibility rows with it.
-// Conversations and messages stay (org data already witnessed); the workspace
-// anchor stays too, so other members' connections keep working.
+// Disconnect the calling member: revoke the token, mark their personal
+// address disconnected and clear the secrets. Everything else stays as is —
+// visibility rows included, so the member keeps seeing their history (frozen
+// until reconnect). Actually DELETING the personal address row is the
+// stronger, separate operation (offboarding): the FK cascade then drops
+// their visibility rows.
 app.delete("/slack-management/connect", async (c) => {
   const organization_id = c.req.query("organization_id");
 
@@ -333,12 +335,14 @@ app.delete("/slack-management/connect", async (c) => {
     }
   }
 
-  // Deleting the personal address row cascades the member's visibility rows
-  // (conversations_agents FKs it) and nothing else: Slack conversations hang
-  // off the shared workspace anchor, which stays, as do messages.
+  // merge_update merges extra, so nulling the token keys clears them without
+  // touching team_id/slack_user_id.
   await createUnsecureClient()
     .from("organizations_addresses")
-    .delete()
+    .update({
+      status: "disconnected",
+      extra: { access_token: null, refresh_token: null },
+    })
     .eq("organization_id", organization_id!)
     .eq("service", "slack")
     .eq("address", connection.address)
