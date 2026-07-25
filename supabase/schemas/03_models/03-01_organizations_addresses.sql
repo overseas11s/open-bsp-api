@@ -2,10 +2,16 @@ create table public.organizations_addresses (
   organization_id uuid not null,
   service public.service not null,
   address text not null,
-  -- Owner of a personal account (e.g. a member's Slack identity). null = shared
-  -- org-wide account (today's behavior for every service). The FK to agents is
-  -- declared in 03-04_agents.sql because agents is created after this table.
+  -- Owner of a personal account (e.g. a member's Slack identity). The FK to
+  -- agents is declared in 03-04_agents.sql because agents is created after
+  -- this table.
   agent_id uuid,
+  -- Who sees this account's conversations. 'shared' = the whole org (the
+  -- shared-inbox behavior of every pre-Slack account). 'membership' = only
+  -- agents listed in conversations_agents (per-member services; note the
+  -- Slack workspace ANCHOR is ownerless yet must NOT be org-visible, so
+  -- ownerless does not imply shared — this column decides, not agent_id).
+  visibility text default 'shared'::text not null,
   extra jsonb,
   status text default 'connected'::text not null,
   created_at timestamp with time zone default now() not null,
@@ -15,6 +21,10 @@ create table public.organizations_addresses (
 alter table only public.organizations_addresses
 add constraint organizations_addresses_pkey
 primary key (organization_id, address);
+
+alter table only public.organizations_addresses
+add constraint organizations_addresses_visibility_check
+check (visibility in ('shared', 'membership'));
 
 alter table only public.organizations_addresses
 add constraint organizations_addresses_organization_id_fkey

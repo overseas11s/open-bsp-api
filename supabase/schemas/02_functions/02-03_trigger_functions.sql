@@ -143,14 +143,13 @@ create function public.before_insert_on_messages() returns trigger
 language plpgsql
 as $$
 begin
-  -- Transition compat (direction → sender_address / contact_address+
-  -- group_address → conversation_address): legacy writers still send
-  -- direction + contact_address/group_address; new writers send
-  -- sender_address/conversation_address only. Derive whichever side is
-  -- missing so both stay consistent until direction and the legacy address
-  -- columns are dropped.
+  -- Transition compat (direction → sender_address, contact_address →
+  -- conversation_address): legacy writers still send direction +
+  -- contact_address; new writers send sender_address/conversation_address
+  -- only. Derive whichever side is missing so both stay consistent until
+  -- direction and contact_address are dropped.
   if new.conversation_address is null then
-    new.conversation_address := coalesce(new.group_address, new.contact_address);
+    new.conversation_address := new.contact_address;
   end if;
 
   if new.sender_address is null and new.direction is not null then
@@ -185,21 +184,25 @@ begin
   order by created_at desc
   limit 1;
 
-  -- Create conversation if it doesn't exist
+  -- Create conversation if it doesn't exist. The legacy contact_address is
+  -- only meaningful on direct chats (peer = a contact); in group messages
+  -- contact_address carries the per-message sender, which must not become
+  -- the conversation's peer.
   if new.conversation_id is null then
     insert into public.conversations (
       organization_id,
       organization_address,
       conversation_address,
       contact_address,
-      group_address,
       service
     ) values (
       new.organization_id,
       new.organization_address,
       new.conversation_address,
-      case when new.group_address is null then new.contact_address end,
-      new.group_address,
+      case
+        when new.contact_address = new.conversation_address
+        then new.contact_address
+      end,
       new.service
     )
     returning id into new.conversation_id;
@@ -324,9 +327,9 @@ as $$
 declare
   _existing_address text;
 begin
-  -- Transition compat: derive conversation_address from the legacy columns.
+  -- Transition compat: derive conversation_address from the legacy column.
   if new.conversation_address is null then
-    new.conversation_address := coalesce(new.group_address, new.contact_address);
+    new.conversation_address := new.contact_address;
   end if;
 
   -- Conversations with external services must have a peer

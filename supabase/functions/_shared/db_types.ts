@@ -753,7 +753,6 @@ export type Database = {
           conversation_address: string | null
           created_at: string
           extra: Json | null
-          group_address: string | null
           id: string
           name: string | null
           organization_address: string
@@ -767,7 +766,6 @@ export type Database = {
           conversation_address?: string | null
           created_at?: string
           extra?: Json | null
-          group_address?: string | null
           id?: string
           name?: string | null
           organization_address: string
@@ -781,7 +779,6 @@ export type Database = {
           conversation_address?: string | null
           created_at?: string
           extra?: Json | null
-          group_address?: string | null
           id?: string
           name?: string | null
           organization_address?: string
@@ -934,7 +931,6 @@ export type Database = {
           created_at: string
           direction: Database["public"]["Enums"]["direction"]
           external_id: string | null
-          group_address: string | null
           id: string
           organization_address: string
           organization_id: string
@@ -954,7 +950,6 @@ export type Database = {
           created_at?: string
           direction: Database["public"]["Enums"]["direction"]
           external_id?: string | null
-          group_address?: string | null
           id?: string
           organization_address: string
           organization_id: string
@@ -974,7 +969,6 @@ export type Database = {
           created_at?: string
           direction?: Database["public"]["Enums"]["direction"]
           external_id?: string | null
-          group_address?: string | null
           id?: string
           organization_address?: string
           organization_id?: string
@@ -1090,6 +1084,7 @@ export type Database = {
           service: Database["public"]["Enums"]["service"]
           status: string
           updated_at: string
+          visibility: string
         }
         Insert: {
           address: string
@@ -1100,6 +1095,7 @@ export type Database = {
           service: Database["public"]["Enums"]["service"]
           status?: string
           updated_at?: string
+          visibility?: string
         }
         Update: {
           address?: string
@@ -1110,6 +1106,7 @@ export type Database = {
           service?: Database["public"]["Enums"]["service"]
           status?: string
           updated_at?: string
+          visibility?: string
         }
         Relationships: [
           {

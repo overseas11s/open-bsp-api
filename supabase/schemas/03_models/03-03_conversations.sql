@@ -3,13 +3,12 @@ create table public.conversations (
   id uuid default gen_random_uuid() not null,
   service public.service not null,
   organization_address text not null,
-  contact_address text, -- legacy, one of contact_address or group_address
-  group_address text,   -- legacy, must be not null for whatsapp service
+  contact_address text, -- legacy, direct chats only; superseded by conversation_address
   -- The peer this conversation is with — an individual or a group/channel
   -- address (e.g. WhatsApp phone/group JID, Slack channel id). Soft reference
   -- (no FK): peers span contacts and external containers. Replaces
-  -- contact_address/group_address; those stay populated by legacy writers
-  -- until readers migrate, then get dropped.
+  -- contact_address (kept populated by legacy writers until readers migrate,
+  -- then dropped) and the never-productive group_address (already dropped).
   conversation_address text,
   name text,
   extra jsonb,
@@ -57,10 +56,6 @@ using btree (organization_address);
 create index conversations_contact_address_idx
 on public.conversations
 using btree (contact_address);
-
-create index conversations_group_address_idx
-on public.conversations
-using btree (group_address);
 
 create index conversations_conversation_address_idx
 on public.conversations

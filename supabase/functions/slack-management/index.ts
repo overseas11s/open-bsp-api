@@ -217,7 +217,9 @@ app.post("/slack-management/connect", async (c) => {
     });
   }
 
-  // Workspace anchor (shared, ownerless) — conversations reference it.
+  // Workspace anchor (ownerless) — conversations reference it. 'membership'
+  // is what keeps Slack conversations off the org-wide shared inbox: only
+  // agents listed in conversations_agents see them.
   await client
     .from("organizations_addresses")
     .upsert({
@@ -225,6 +227,7 @@ app.post("/slack-management/connect", async (c) => {
       service: "slack" as const,
       address: team.id,
       status: "connected",
+      visibility: "membership",
       extra: { team_name: team.name, enterprise_id: access.enterprise?.id },
     })
     .throwOnError();
@@ -240,6 +243,7 @@ app.post("/slack-management/connect", async (c) => {
       address,
       agent_id: agent.id,
       status: "connected",
+      visibility: "membership",
       extra: {
         team_id: team.id,
         slack_user_id: authed.id,

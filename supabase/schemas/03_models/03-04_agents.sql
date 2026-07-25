@@ -31,14 +31,16 @@ references auth.users(id)
 on delete cascade;
 
 -- Declared here (not in 03-01) because agents is created after
--- organizations_addresses. `set null` (not cascade): deleting a member must not
--- silently delete the address row and cascade away its conversations; the
--- address flips to ownerless and offboarding handles it explicitly.
+-- organizations_addresses. `restrict`: deleting a connected account is an
+-- API-side operation (revoke tokens etc.), not just a row delete — so an
+-- agent cannot be removed while it still owns addresses. Offboarding deletes
+-- the address first (cascading its data: if the account's owner goes away,
+-- its messages do too), then the agent.
 alter table only public.organizations_addresses
 add constraint organizations_addresses_agent_id_fkey
 foreign key (agent_id)
 references public.agents(id)
-on delete set null;
+on delete restrict;
 
 create index agents_user_id_idx
 on public.agents

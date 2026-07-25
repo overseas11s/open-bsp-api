@@ -226,6 +226,10 @@ async function handle(req: Request): Promise<Response> {
   // the Meta webhooks: the row exists (the dispatcher inserted it), so the
   // upsert only merges status. See whatsapp-webhook for the rationale on
   // upserting statuses and messages in two separate statements.
+  // The wire contract still says contact_address/group_address (the bridge
+  // predates the unified addressing); the DB dropped group_address, so map:
+  // conversation_address = the chat (group, or the contact for direct chats),
+  // contact_address = the individual sender (kept for legacy readers).
   const statuses: MessageInsert[] = (batch.statuses ?? []).map((status) => ({
     organization_id,
     service,
@@ -233,7 +237,7 @@ async function handle(req: Request): Promise<Response> {
     direction: "outgoing" as const,
     external_id: status.external_id,
     contact_address: status.contact_address,
-    group_address: status.group_address,
+    conversation_address: status.group_address ?? status.contact_address,
     content: {} as OutgoingMessage, // this will get merged (it won't overwrite)
     status: status.status as OutgoingStatus,
   }));
@@ -246,7 +250,7 @@ async function handle(req: Request): Promise<Response> {
         organization_address,
         external_id: message.external_id,
         contact_address: message.contact_address,
-        group_address: message.group_address,
+        conversation_address: message.group_address ?? message.contact_address,
         thread_id: message.thread_id,
         timestamp: message.timestamp,
       };
@@ -311,7 +315,7 @@ async function handle(req: Request): Promise<Response> {
       .update({ name: group.name })
       .eq("organization_id", organization_id)
       .eq("service", service)
-      .eq("group_address", group.address)
+      .eq("conversation_address", group.address)
       .throwOnError();
   }
 

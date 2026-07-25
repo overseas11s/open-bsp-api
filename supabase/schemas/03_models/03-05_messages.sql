@@ -11,16 +11,15 @@ create table public.messages (
   -- denormalized properties
   service public.service not null,
   organization_address text not null,
-  group_address text,
   -- Logical partition of a conversation (Slack/Discord-style threads): the
   -- external_id of the thread's root message, shared by the root (which points
   -- to itself) and all of its replies. null = top-level / main channel
   -- timeline. Soft reference like content.re_message_id — not a FK, so it
   -- tolerates out-of-order arrival and out-of-window roots.
   thread_id text,
-  -- Unified peer addressing (transition away from direction + contact_address/
-  -- group_address; both sides kept in sync by before_insert_on_messages until
-  -- readers migrate and the legacy columns get dropped):
+  -- Unified peer addressing (transition away from direction + contact_address;
+  -- both sides kept in sync by before_insert_on_messages until readers migrate
+  -- and the legacy columns get dropped):
   -- conversation_address — the peer the conversation is with (individual or
   --   group/channel). Soft reference, like thread_id.
   -- sender_address — who authored the message; does NOT imply an agent.

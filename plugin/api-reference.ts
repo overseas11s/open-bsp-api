@@ -111,7 +111,7 @@ All tables are scoped by \`organization_id\` via Row Level Security (RLS).
 | name | text | |
 | status | text | default: active |
 | extra | jsonb | |
-| group_address | text | |
+| conversation_address | text | the peer: individual or group/channel address |
 | created_at | timestamptz | default: now() |
 | updated_at | timestamptz | default: now() |
 
@@ -129,7 +129,8 @@ All tables are scoped by \`organization_id\` via Row Level Security (RLS).
 | status | jsonb | delivery status |
 | agent_id | uuid | FK → agents.id |
 | external_id | text | provider message ID |
-| group_address | text | |
+| conversation_address | text | the peer: individual or group/channel address |
+| sender_address | text | author; null = internal, = organization_address = sent by the account |
 | timestamp | timestamptz | default: now() |
 | created_at | timestamptz | default: now() |
 | updated_at | timestamptz | default: now() |
