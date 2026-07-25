@@ -96,10 +96,17 @@ export async function syncConnection(
         usersById,
       });
 
+      // organization_address = the member's personal address, so deleting
+      // their connection row cascades exactly these visibility rows.
       await client
         .from("conversations_agents")
         .upsert(
-          { organization_id, conversation_id, agent_id },
+          {
+            organization_id,
+            organization_address: `${team_id}:${slack_user_id}`,
+            conversation_id,
+            agent_id,
+          },
           { onConflict: "conversation_id,agent_id" },
         )
         .throwOnError();

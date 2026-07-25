@@ -7,6 +7,11 @@
 -- is null) do not use this table — they are visible org-wide as before.
 create table public.conversations_agents (
   organization_id uuid not null,
+  -- The member's personal account this visibility stems from (e.g. their
+  -- Slack identity T…:U…) — NOT the shared anchor the conversation hangs off.
+  -- Cascade makes "disconnect = delete the personal address row" drop exactly
+  -- this connection's visibility, and nothing from other services.
+  organization_address text not null,
   conversation_id uuid not null,
   agent_id uuid not null,
   extra jsonb, -- e.g. per-member state: muted, last_read_ts
@@ -22,6 +27,12 @@ alter table only public.conversations_agents
 add constraint conversations_agents_organization_id_fkey
 foreign key (organization_id)
 references public.organizations(id)
+on delete cascade;
+
+alter table only public.conversations_agents
+add constraint conversations_agents_organization_address_fkey
+foreign key (organization_id, organization_address)
+references public.organizations_addresses(organization_id, address)
 on delete cascade;
 
 alter table only public.conversations_agents
@@ -50,6 +61,11 @@ using btree (agent_id);
 create index conversations_agents_organization_id_idx
 on public.conversations_agents
 using btree (organization_id);
+
+-- Supports the on-delete-cascade lookup from organizations_addresses.
+create index conversations_agents_organization_address_idx
+on public.conversations_agents
+using btree (organization_id, organization_address);
 
 create trigger set_extra
 before update

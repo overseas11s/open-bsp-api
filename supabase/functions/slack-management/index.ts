@@ -312,10 +312,10 @@ app.post("/slack-management/sync", async (c) => {
   return c.json({ sync: summary });
 });
 
-// Disconnect the calling member: revoke the token, mark the personal address
-// disconnected, drop their visibility rows. Conversations and messages stay
-// (org data already witnessed); the workspace anchor stays too, so other
-// members' connections keep working.
+// Disconnect the calling member: revoke the token and delete their personal
+// address row — the FK cascade drops their visibility rows with it.
+// Conversations and messages stay (org data already witnessed); the workspace
+// anchor stays too, so other members' connections keep working.
 app.delete("/slack-management/connect", async (c) => {
   const organization_id = c.req.query("organization_id");
 
@@ -333,42 +333,16 @@ app.delete("/slack-management/connect", async (c) => {
     }
   }
 
-  const client = createUnsecureClient();
-
-  // merge_update merges extra, so nulling the token keys is how they get
-  // cleared without touching team_id/slack_user_id.
-  await client
+  // Deleting the personal address row cascades the member's visibility rows
+  // (conversations_agents FKs it) and nothing else: Slack conversations hang
+  // off the shared workspace anchor, which stays, as do messages.
+  await createUnsecureClient()
     .from("organizations_addresses")
-    .update({
-      status: "disconnected",
-      extra: { access_token: null, refresh_token: null },
-    })
+    .delete()
     .eq("organization_id", organization_id!)
     .eq("service", "slack")
     .eq("address", connection.address)
     .throwOnError();
-
-  // Drop only the member's SLACK visibility rows — other services may share
-  // conversations_agents. PostgREST cannot filter a delete through a joined
-  // table, so fetch the ids first and delete in chunks.
-  const { data: memberships } = await client
-    .from("conversations_agents")
-    .select("conversation_id, conversations!inner(service)")
-    .eq("organization_id", organization_id!)
-    .eq("agent_id", agent.id)
-    .eq("conversations.service", "slack")
-    .throwOnError();
-
-  const ids = (memberships ?? []).map((m) => m.conversation_id);
-
-  for (let i = 0; i < ids.length; i += 100) {
-    await client
-      .from("conversations_agents")
-      .delete()
-      .eq("agent_id", agent.id)
-      .in("conversation_id", ids.slice(i, i + 100))
-      .throwOnError();
-  }
 
   return c.json({});
 });

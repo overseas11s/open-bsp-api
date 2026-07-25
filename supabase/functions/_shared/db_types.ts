@@ -820,6 +820,7 @@ export type Database = {
           conversation_id: string
           created_at: string
           extra: Json | null
+          organization_address: string
           organization_id: string
           updated_at: string
         }
@@ -828,6 +829,7 @@ export type Database = {
           conversation_id: string
           created_at?: string
           extra?: Json | null
+          organization_address: string
           organization_id: string
           updated_at?: string
         }
@@ -836,6 +838,7 @@ export type Database = {
           conversation_id?: string
           created_at?: string
           extra?: Json | null
+          organization_address?: string
           organization_id?: string
           updated_at?: string
         }
@@ -853,6 +856,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "conversations"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversations_agents_organization_address_fkey"
+            columns: ["organization_id", "organization_address"]
+            isOneToOne: false
+            referencedRelation: "organizations_addresses"
+            referencedColumns: ["organization_id", "address"]
           },
           {
             foreignKeyName: "conversations_agents_organization_id_fkey"
