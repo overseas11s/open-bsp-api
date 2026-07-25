@@ -348,14 +348,27 @@ app.delete("/slack-management/connect", async (c) => {
     .eq("address", connection.address)
     .throwOnError();
 
-  // Only Slack populates conversations_agents today; scope by service via the
-  // conversation once another service uses this table.
-  await client
+  // Drop only the member's SLACK visibility rows — other services may share
+  // conversations_agents. PostgREST cannot filter a delete through a joined
+  // table, so fetch the ids first and delete in chunks.
+  const { data: memberships } = await client
     .from("conversations_agents")
-    .delete()
+    .select("conversation_id, conversations!inner(service)")
     .eq("organization_id", organization_id!)
     .eq("agent_id", agent.id)
+    .eq("conversations.service", "slack")
     .throwOnError();
+
+  const ids = (memberships ?? []).map((m) => m.conversation_id);
+
+  for (let i = 0; i < ids.length; i += 100) {
+    await client
+      .from("conversations_agents")
+      .delete()
+      .eq("agent_id", agent.id)
+      .in("conversation_id", ids.slice(i, i + 100))
+      .throwOnError();
+  }
 
   return c.json({});
 });
