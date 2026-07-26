@@ -7,7 +7,11 @@
 // from membership events on the webhook, never from this member's token.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as log from "../_shared/logger.ts";
-import { type SlackChannel, slackPaginate, type SlackUser } from "../_shared/slack.ts";
+import {
+  type SlackChannel,
+  slackPaginate,
+  type SlackUser,
+} from "../_shared/slack.ts";
 
 export type SyncSummary = {
   users: number;

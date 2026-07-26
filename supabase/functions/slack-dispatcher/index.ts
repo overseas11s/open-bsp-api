@@ -21,7 +21,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Json } from "../_shared/db_types.ts";
 import { commitDispatchedMessage } from "../_shared/dispatch.ts";
 import { downloadFromStorage } from "../_shared/media.ts";
-import { markdownToWhatsApp } from "../_shared/markdown.ts";
+import { markdownToSlack } from "../_shared/markdown.ts";
 import { oauthRefresh, slackApi, SlackError } from "../_shared/slack.ts";
 
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -144,10 +144,7 @@ async function send(
     case "text": {
       const payload = await slackApi("chat.postMessage", token, {
         channel,
-        // Slack mrkdwn shares WhatsApp's conventions (*bold*, _italic_,
-        // ~strike~, `code`), so the existing converter applies. Links
-        // ([text](url) → <url|text>) are not converted yet.
-        text: markdownToWhatsApp(content.text),
+        text: markdownToSlack(content.text),
         ...(message.thread_id ? { thread_ts: message.thread_id } : {}),
       });
 
@@ -202,19 +199,35 @@ async function send(
         );
       }
 
-      await slackApi("files.completeUploadExternal", token, {
+      // Upload-then-reference, the same shape as WhatsApp's media flow:
+      // complete the upload WITHOUT a channel (sharing via
+      // files.completeUploadExternal's channel_id posts asynchronously and
+      // returns no ts), then post a regular message whose <permalink| >
+      // reference shares and unfurls the file. chat.postMessage returns the
+      // ts synchronously, so the echo merges into this row like any text
+      // send.
+      const completed = await slackApi("files.completeUploadExternal", token, {
         files: JSON.stringify([{ id: upload.file_id, title: filename }]),
-        channel_id: channel,
-        ...(content.text ? { initial_comment: content.text } : {}),
+      });
+
+      const permalink = (completed.files as Array<{ permalink?: string }>)?.[0]
+        ?.permalink;
+
+      if (!permalink) {
+        throw new SlackError("completeUploadExternal returned no permalink", {
+          cause: completed,
+        });
+      }
+
+      const caption = content.text ? `${markdownToSlack(content.text)}\n` : "";
+
+      const payload = await slackApi("chat.postMessage", token, {
+        channel,
+        text: `${caption}<${permalink}| >`,
         ...(message.thread_id ? { thread_ts: message.thread_id } : {}),
       });
 
-      // completeUploadExternal posts the message asynchronously and returns
-      // no ts, so there is no external_id to stamp: the echo webhook inserts
-      // its own row for the share. TODO: dedup the local row against the
-      // echo (e.g. match by file name + author + time window) — until then a
-      // file sent from OpenBSP renders twice.
-      return undefined;
+      return payload.ts as string;
     }
 
     default:

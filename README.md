@@ -40,6 +40,7 @@ and offer messaging services to other organizations.
 - [Instagram integration](#instagram-integration)
 - [App review](#app-review)
 - [WhatsApp Web integration (unofficial API)](#whatsapp-web-integration-unofficial-api)
+- [Slack integration](#slack-integration)
 
 #### Development
 
@@ -906,6 +907,66 @@ Web multidevice protocol** via a companion bridge service:
 
 One bridge instance serves many organizations/numbers, but runs as a single
 replica by design (a WhatsApp session is one WebSocket).
+
+## Slack integration
+
+Slack is OpenBSP's first **intra-org** channel: where WhatsApp/Instagram face
+customers through a shared inbox, Slack mirrors each member's own workspace
+conversations — their DMs, group DMs and channels — into OpenBSP, preserving
+privacy. A Slack conversation is visible only to the members who are in it on
+Slack; there is no org-wide access, and no role bypass (owners/admins cannot
+read other members' conversations).
+
+The app acts **as the user** (xoxp user tokens, no bot): each member connects
+their own Slack account through OAuth, messages sent from OpenBSP post genuinely
+as them, and everything they can see on Slack flows in — including messages
+typed in the Slack apps, edits, deletions, reactions, threads and files.
+
+### Create the Slack app
+
+1. Create an app at [api.slack.com/apps](https://api.slack.com/apps) with these
+   **user token scopes** (OAuth & Permissions): `channels:history`,
+   `channels:read`, `groups:history`, `groups:read`, `im:history`, `im:read`,
+   `im:write`, `mpim:history`, `mpim:read`, `mpim:write`, `chat:write`,
+   `users:read`, `files:read`, `files:write`, `reactions:read`,
+   `reactions:write`.
+2. Add your UI's OAuth callback as a **redirect URL**.
+3. Enable **Event Subscriptions** pointing at
+   `https://<project>.supabase.co/functions/v1/slack-webhook` and subscribe to
+   these **user events**: `message.im`, `message.mpim`, `message.groups`,
+   `message.channels`, `reaction_added`, `reaction_removed`,
+   `member_joined_channel`, `member_left_channel`, `channel_rename`,
+   `channel_archive`, `channel_unarchive`, `user_change`, `tokens_revoked`,
+   `app_uninstalled`.
+4. Set the edge function secrets:
+
+   ```bash
+   SLACK_CLIENT_ID=<from Basic Information>
+   SLACK_CLIENT_SECRET=<from Basic Information>
+   SLACK_SIGNING_SECRET=<from Basic Information>
+   SLACK_APP_TOKEN=<optional, xapp- app-level token>
+   ```
+
+   `SLACK_APP_TOKEN` is optional: it lets the webhook resolve the full list of
+   installed members when a brand-new channel/DM shows up
+   (`apps.event.authorizations.list`); without it the first event only grants
+   visibility to one member until the others re-sync. Recommended once more than
+   one member per workspace connects.
+
+### Connecting members
+
+Each member connects individually: `GET /slack-management/authorize-url`
+composes the OAuth URL, the callback exchanges the code via
+`POST /slack-management/connect` (user JWT — API keys cannot own a personal
+connection), which stores the workspace anchor plus the member's identity and
+runs the initial sync (workspace directory → contacts, the member's
+conversations → visibility). `POST /slack-management/sync` re-syncs,
+`DELETE /slack-management/connect` disconnects — revoking the token but keeping
+history readable, frozen, until reconnect.
+
+One Slack workspace maps to one organization. Token rotation (marketplace apps)
+is supported: rotated tokens refresh inline on send and via the
+`/slack-management/refresh-tokens` cron endpoint.
 
 ## Architecture
 

@@ -1,7 +1,10 @@
 import * as log from "./logger.ts";
 
 // Conversions between common Markdown (what the DB, UI, and agents speak)
-// and WhatsApp's formatting flavor (what the wire speaks).
+// and the wire flavors: WhatsApp formatting and Slack mrkdwn. The two wire
+// flavors share the same emphasis conventions (*bold*, _italic_, ~strike~,
+// backtick code), so the Slack converters delegate to the WhatsApp ones and
+// add what differs: HTML-entity escaping and <url|text> links.
 //
 // A marker only counts as formatting when it would actually render: it must
 // hug non-space text on the inside, be bounded by non-alphanumerics on the
@@ -121,6 +124,71 @@ export function whatsappToMarkdown(text: string): string {
     });
   } catch (error) {
     log.error("Error converting WhatsApp to Markdown", error);
+    return text;
+  }
+}
+
+/** Common Markdown → Slack mrkdwn (outbound). */
+export function markdownToSlack(text: string): string {
+  try {
+    // Escape mrkdwn's control characters first, before the link pass
+    // introduces its own < >. A line-leading "> " survives as a quote —
+    // mrkdwn uses the same blockquote syntax.
+    let processed = text
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      // Line-leading "> " is mrkdwn's own blockquote syntax and must
+      // survive the escaping: park it behind a sentinel, restore after.
+      .replace(/^>(?= )/gm, "")
+      .replaceAll(">", "&gt;")
+      .replace(//g, ">");
+
+    // Emphasis/headers are the WhatsApp conversions verbatim.
+    processed = markdownToWhatsApp(processed);
+
+    // Links: [text](url) -> <url|text>, outside code spans. `&` inside the
+    // url was escaped above, which is what mrkdwn expects.
+    return outsideCode(
+      processed,
+      (part) => part.replace(/\[([^\]\n]+)\]\((https?:[^\s)]+)\)/g, "<$2|$1>"),
+    );
+  } catch (error) {
+    log.error("Error converting Markdown to Slack", error);
+    return text;
+  }
+}
+
+/** Slack mrkdwn → common Markdown (inbound). */
+export function slackToMarkdown(text: string): string {
+  try {
+    const processed = outsideCode(text, (part) => {
+      let p = part;
+
+      // Links: <url|label> -> [label](url); bare <url> -> url
+      p = p.replace(/<(https?:\/\/[^>|]+)\|([^>]+)>/g, "[$2]($1)");
+      p = p.replace(/<(https?:\/\/[^>|]+)>/g, "$1");
+
+      // Channel references: <#C123|name> -> #name. User (<@U123>) and
+      // special (<!here>) mentions are left verbatim — resolving them to
+      // names needs the directory, which is the UI's job.
+      p = p.replace(/<#[A-Z0-9]+\|([^>]+)>/g, "#$1");
+
+      // Emphasis: same wire flavor as WhatsApp.
+      p = convertMarker(p, "*", "**", "**");
+      p = convertMarker(p, "~", "~~", "~~");
+
+      return p;
+    });
+
+    // Slack entity-escapes the whole payload, code spans included, so the
+    // unescape runs on everything — and last, so freshly produced entities
+    // above can't be double-decoded.
+    return processed
+      .replaceAll("&lt;", "<")
+      .replaceAll("&gt;", ">")
+      .replaceAll("&amp;", "&");
+  } catch (error) {
+    log.error("Error converting Slack to Markdown", error);
     return text;
   }
 }

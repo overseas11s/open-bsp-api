@@ -8,9 +8,8 @@
 //     workspace anchor) and carry a final status (delivered) — never
 //     status.pending, so neither the dispatcher nor agent-client fires.
 //   - Sends made through OpenBSP come back as message events too; the
-//     external_id upsert merges them into the dispatcher's row. TODO(slack-
-//     dispatcher): make commitDispatchedMessage tolerant of the echo landing
-//     first (unique violation on external_id).
+//     external_id upsert merges them into the dispatcher's row, and when the
+//     echo lands first commitDispatchedMessage folds the duplicate.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as log from "../_shared/logger.ts";
 import type {
@@ -24,6 +23,7 @@ import {
   type SlackUser,
   usersInfo,
 } from "../_shared/slack.ts";
+import { slackToMarkdown } from "../_shared/markdown.ts";
 
 export type SlackEnvelope = {
   type: "url_verification" | "event_callback" | string;
@@ -279,7 +279,7 @@ async function onMessage(ctx: Ctx, event: SlackEvent): Promise<void> {
     await ctx.client
       .from("messages")
       .update({
-        content: { text: event.message.text ?? "" },
+        content: { text: slackToMarkdown(event.message.text ?? "") },
         status: { edited: tsToIso(event.event_ts ?? event.message.ts) },
       })
       .eq("external_id", externalId(ctx.team, channel, event.message.ts))
@@ -347,7 +347,7 @@ async function onMessage(ctx: Ctx, event: SlackEvent): Promise<void> {
         version: "1",
         type: "text",
         kind: "text",
-        text: event.text ?? "",
+        text: slackToMarkdown(event.text ?? ""),
       } as IncomingMessage,
     });
   } else {
@@ -372,7 +372,9 @@ async function onMessage(ctx: Ctx, event: SlackEvent): Promise<void> {
               name: file.name,
               size: file.size ?? 0,
             },
-            ...(index === 0 && event.text ? { text: event.text } : {}),
+            ...(index === 0 && event.text
+              ? { text: slackToMarkdown(event.text) }
+              : {}),
           } as IncomingMessage
           // Download failed/oversized/no token: keep the message with a
           // placeholder so the timeline stays complete.
@@ -381,7 +383,9 @@ async function onMessage(ctx: Ctx, event: SlackEvent): Promise<void> {
             type: "data",
             kind: "media_placeholder",
             data: {},
-            ...(index === 0 && event.text ? { text: event.text } : {}),
+            ...(index === 0 && event.text
+              ? { text: slackToMarkdown(event.text) }
+              : {}),
           } as IncomingMessage,
       });
     }
