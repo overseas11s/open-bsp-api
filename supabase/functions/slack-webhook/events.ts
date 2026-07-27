@@ -467,9 +467,14 @@ async function onReaction(ctx: Ctx, event: SlackEvent): Promise<void> {
         version: "1",
         type: "data",
         kind: "reaction",
+        // Convention: text is the display form — the Unicode emoji when
+        // mappable (shortcode map pending, `:name:` until then), empty on
+        // removal (WhatsApp's removal convention); data always carries the
+        // full triple.
+        text: event.type === "reaction_added" ? `:${event.reaction}:` : "",
         data: {
-          name: event.reaction,
           action: event.type === "reaction_added" ? "added" : "removed",
+          name: event.reaction,
         },
         re_message_id: externalId(ctx.team, channel, ts),
       } as IncomingMessage,

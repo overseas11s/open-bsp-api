@@ -181,10 +181,18 @@ type ReferralPart = DataPart<"referral", InstagramReferral>;
 // add/remove semantics — modeled as data (Meta reactions stay TextPart kind
 // 'reaction'). One row per reaction event; re_message_id points at the
 // reacted message's external id.
+//
+// Convention (2026-07-26): `text` is the display form — the Unicode emoji
+// when mappable, empty on removal (matching WhatsApp's removal convention).
+// `data` always carries the full triple so removal knows which emoji and
+// dispatchers know the wire form.
 export type ReactionPart = DataPart<"reaction", {
+  action: "added" | "removed";
   /** Emoji name as the service reports it, e.g. "thumbsup" */
   name: string;
-  action: "added" | "removed";
+  /** Unicode rendering, e.g. "👍" — pending the shortcode↔emoji map for
+   * Slack/Discord (see TODO.md); Meta sets it always. */
+  unicode?: string;
 }>;
 
 // Shared Instagram post/reel (attachment types ig_post, ig_reel, reel). Unlike
@@ -271,4 +279,11 @@ export type OutgoingMessage =
     forwarded?: boolean;
   }
   & TaskInfo
-  & (TextPart | FilePart | ContactsPart | LocationPart | TemplatePart);
+  & (
+    | TextPart
+    | FilePart
+    | ContactsPart
+    | LocationPart
+    | TemplatePart
+    | ReactionPart
+  );

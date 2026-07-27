@@ -42,18 +42,16 @@ Monetization (medium-term)
 - [ ] Offer user-scoped WhatsApp/Instagram connections — the visibility model
       already supports it (personal address = owner-only, branch 2 of
       is_conversation_visible); needs management/UI work
-- [ ] Storage RLS for user-scoped connections — media objects
-      (05-11_objects_rls) are org-scoped, so an attachment from a private Slack
-      conversation is fetchable by any org member who obtains its path; object
-      access should follow is_conversation_visible like messages do
-- [ ] Common reaction convention across services — always carry `data.action`
-      ('added' | 'removed') and both representations: `text` = Unicode emoji
-      (display form), `data.name` = service-native id (Slack shortcode, Discord
-      custom-emoji id; for Meta same as text). Outgoing: UI/agents send
-      Unicode + action; each dispatcher converts (needs a shortcode↔emoji map in
-      _shared) — this also unlocks Slack reactions.remove, unsupported today
-      because Meta's empty-text removal convention doesn't say which emoji to
-      remove
+- [x] Storage RLS for user-scoped connections — is_media_visible() on the
+      storage.objects download policy: unreferenced objects stay org-scoped,
+      referenced ones require a visible referencing message (v1 file parts
+      only; v0 legacy media stays org-scoped)
+- [ ] Reaction shortcode↔emoji map — the reaction convention is settled
+      (`text` = Unicode display form, empty on removal; `data` always
+      `{action, name, unicode}` with `name` = service-native id) and wired
+      into slack-webhook/slack-dispatcher (removal included); what's missing
+      is the shortcode↔emoji map in \_shared so Slack fills `data.unicode`
+      and `text` renders "👍" instead of ":thumbsup:"
 
 ## General
 

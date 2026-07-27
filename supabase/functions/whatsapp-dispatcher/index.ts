@@ -255,7 +255,9 @@ function outgoingMessageToEndpointMessage({
         ...baseMessage,
         type: "reaction",
         reaction: {
-          emoji: content.text,
+          // Empty = removal (Meta's convention); text is optional on the
+          // cross-service ReactionPart shape.
+          emoji: content.text ?? "",
           message_id: content.re_message_id!,
         },
       };

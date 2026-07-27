@@ -211,14 +211,21 @@ export async function usersInfo(
 /**
  * Full list of installations an event applies to. The event payload itself
  * carries at most one authorization; this API (app-level xapp token) returns
- * them all. Falls back to null when no app token is configured — callers then
- * use the payload's partial list.
+ * them all. SLACK_APP_TOKEN is expected configuration — without it callers
+ * degrade to the payload's partial list, which under-grants visibility on
+ * first contact with a channel when several members are connected.
  */
 export async function eventAuthorizations(
   event_context: string,
 ): Promise<Array<{ user_id: string; is_bot?: boolean }> | null> {
   const appToken = Deno.env.get("SLACK_APP_TOKEN");
-  if (!appToken) return null;
+
+  if (!appToken) {
+    log.error(
+      "SLACK_APP_TOKEN is not configured; falling back to the event's partial authorizations",
+    );
+    return null;
+  }
 
   try {
     const payload = await slackApi(

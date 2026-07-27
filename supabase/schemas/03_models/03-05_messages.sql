@@ -96,6 +96,14 @@ create index messages_org_conv_timestamp_idx
 on public.messages
 using btree (organization_id, conversation_id, timestamp desc);
 
+-- Media-object → referencing-message lookup (is_media_visible, used by the
+-- storage.objects download policy). v1 file parts only: v0 legacy media is
+-- not matched, so it stays org-scoped like any unreferenced object.
+create index messages_file_uri_idx
+on public.messages
+using btree ((content->'file'->>'uri'))
+where content->'file'->>'uri' is not null;
+
 create trigger handle_new_message
 before insert
 on public.messages

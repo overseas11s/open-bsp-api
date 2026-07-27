@@ -157,18 +157,32 @@ async function send(
           "Cannot send a Slack reaction without re_message_id",
         );
       }
-      if (!content.text) {
-        // Removal needs the emoji name; an empty reaction (Meta's removal
-        // convention) is ambiguous here.
-        throw new PermanentError("Slack reaction removal is not supported");
+
+      // Reaction convention: data carries {action, name, unicode}; text is
+      // the display form (empty on removal). Meta-style TextPart reactions
+      // (text only) still work for adds: the shortcode is derived from text.
+      const data = (content as {
+        data?: { action?: "added" | "removed"; name?: string };
+      }).data;
+
+      const name = data?.name ?? content.text?.replaceAll(":", "");
+      const action = data?.action ?? (content.text ? "added" : "removed");
+
+      if (!name) {
+        throw new PermanentError(
+          "Slack reactions need the emoji name (data.name or a :shortcode: text)",
+        );
       }
 
-      // external ids are `${team}:${channel}:${ts}`; reactions.add wants the
-      // bare ts. Accept both `:name:` shortcodes and bare names.
+      // external ids are `${team}:${channel}:${ts}`; the reactions API wants
+      // the bare ts.
       const timestamp = content.re_message_id.split(":").pop()!;
-      const name = content.text.replaceAll(":", "");
 
-      await slackApi("reactions.add", token, { channel, timestamp, name });
+      await slackApi(
+        action === "added" ? "reactions.add" : "reactions.remove",
+        token,
+        { channel, timestamp, name },
+      );
 
       return undefined;
     }

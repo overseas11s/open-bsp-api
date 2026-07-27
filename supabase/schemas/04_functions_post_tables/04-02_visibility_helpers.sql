@@ -64,3 +64,33 @@ as $$
         and a.user_id = auth.uid()
     );
 $$;
+
+-- Whether the caller may download a media object (storage path
+-- organizations/<org>/attachments/<file>). Rule: an object nobody references
+-- stays org-scoped (covers freshly uploaded files whose message doesn't
+-- exist yet, and v0-content legacy media, which only v1 file parts can
+-- reference here); a referenced object requires at least one referencing
+-- message whose conversation the caller can see. SECURITY DEFINER on
+-- purpose: with invoker rights the invisible referencing messages would be
+-- hidden by RLS and the check could not distinguish "unreferenced" from
+-- "referenced but private".
+create function public.is_media_visible(object_name text) returns boolean
+language sql
+stable
+security definer
+set search_path to ''
+as $$
+  with refs as (
+    select m.conversation_id, m.organization_id, m.organization_address, m.service
+    from public.messages m
+    where m.content->'file'->>'uri' = 'internal://media/' || object_name
+  )
+  select
+    not exists (select 1 from refs)
+    or exists (
+      select 1 from refs r
+      where public.is_conversation_visible(
+        r.conversation_id, r.organization_id, r.organization_address, r.service
+      )
+    );
+$$;

@@ -944,14 +944,13 @@ typed in the Slack apps, edits, deletions, reactions, threads and files.
    SLACK_CLIENT_ID=<from Basic Information>
    SLACK_CLIENT_SECRET=<from Basic Information>
    SLACK_SIGNING_SECRET=<from Basic Information>
-   SLACK_APP_TOKEN=<optional, xapp- app-level token>
+   SLACK_APP_TOKEN=<xapp- app-level token>
    ```
 
-   `SLACK_APP_TOKEN` is optional: it lets the webhook resolve the full list of
-   installed members when a brand-new channel/DM shows up
-   (`apps.event.authorizations.list`); without it the first event only grants
-   visibility to one member until the others re-sync. Recommended once more than
-   one member per workspace connects.
+   `SLACK_APP_TOKEN` lets the webhook resolve the full list of installed members
+   when a brand-new channel/DM shows up (`apps.event.authorizations.list`).
+   Generate it under **Basic Information → App-Level Tokens** with the
+   `authorizations:read` scope.
 
 ### Connecting members
 
