@@ -26,9 +26,10 @@ import { Json } from "../_shared/db_types.ts";
 import { createClient, createUnsecureClient } from "../_shared/supabase.ts";
 import {
   buildAuthorizeUrl,
+  ensureFreshToken,
   oauthAccess,
-  oauthRefresh,
   slackApi,
+  type SlackConnection,
   SlackError,
 } from "../_shared/slack.ts";
 import { syncConnection } from "./sync.ts";
@@ -377,13 +378,10 @@ app.post("/slack-management/refresh-tokens", async (c) => {
   const summary = { refreshed: 0, failed: 0, skipped: 0 };
 
   for (const connection of connections ?? []) {
-    const extra = connection.extra as {
-      refresh_token: string;
-      expires_at?: string;
-    };
+    const extra = connection.extra as SlackConnection["extra"];
 
     // Refresh only when expiring within 12h (Slack tokens live ~12h; the
-    // cron runs more often than that once rotation is on).
+    // cron runs every 4h).
     if (
       extra.expires_at &&
       new Date(extra.expires_at).getTime() - Date.now() > 12 * 60 * 60 * 1000
@@ -393,34 +391,16 @@ app.post("/slack-management/refresh-tokens", async (c) => {
     }
 
     try {
-      const access = await oauthRefresh(extra.refresh_token);
-      const authed = access.authed_user;
-
-      if (!authed?.access_token) {
-        throw new SlackError("Refresh response missing access_token", {
-          cause: access,
-        });
-      }
-
-      // merge_update keeps the untouched extra keys.
-      await client
-        .from("organizations_addresses")
-        .update({
-          extra: {
-            access_token: authed.access_token,
-            refresh_token: authed.refresh_token ?? extra.refresh_token,
-            expires_at: authed.expires_in
-              ? new Date(Date.now() + authed.expires_in * 1000).toISOString()
-              : undefined,
-          },
-        })
-        .eq("organization_id", connection.organization_id)
-        .eq("service", "slack")
-        .eq("address", connection.address)
-        .throwOnError();
-
+      await ensureFreshToken(
+        client,
+        connection.organization_id,
+        connection as SlackConnection,
+        12 * 60 * 60 * 1000,
+      );
       summary.refreshed++;
     } catch (error) {
+      // A dead refresh token already flipped the connection to disconnected
+      // inside ensureFreshToken, so the UI prompts a reconnect.
       log.error(
         `Slack token refresh failed for ${connection.address}`,
         error instanceof SlackError ? error.cause : error,

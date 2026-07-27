@@ -1,5 +1,6 @@
 // Minimal Slack Web API client for the management function. Only the methods
 // the OAuth/connect/sync flows need — the webhook/dispatcher get their own.
+import type { SupabaseClient } from "@supabase/supabase-js";
 import * as log from "../_shared/logger.ts";
 
 const CLIENT_ID = Deno.env.get("SLACK_CLIENT_ID") ?? "";
@@ -239,5 +240,118 @@ export async function eventAuthorizations(
   } catch (error) {
     log.warn("apps.event.authorizations.list failed", error);
     return null;
+  }
+}
+
+/**
+ * Slack error codes meaning the token/grant is dead and only a reconnect can
+ * fix it (as opposed to transient failures worth retrying).
+ * invalid_refresh_token: refresh tokens are single-use — a revoked grant or a
+ * race that spent the same refresh token twice leaves the stored one dead.
+ */
+export const DEAD_TOKEN_ERRORS = new Set([
+  "token_revoked",
+  "token_expired",
+  "invalid_auth",
+  "account_inactive",
+  "invalid_refresh_token",
+]);
+
+/** A member's personal connection row (address `T…:U…`), extra subset. */
+export type SlackConnection = {
+  address: string;
+  extra: {
+    access_token?: string | null;
+    refresh_token?: string | null;
+    expires_at?: string | null;
+  };
+};
+
+/**
+ * Flips a personal connection to disconnected and clears its secrets so the
+ * UI prompts a reconnect — same semantics as the tokens_revoked webhook.
+ * merge_update keeps the untouched extra keys.
+ */
+export async function disconnectConnection(
+  client: SupabaseClient,
+  organization_id: string,
+  address: string,
+): Promise<void> {
+  await client
+    .from("organizations_addresses")
+    .update({
+      status: "disconnected",
+      extra: { access_token: null, refresh_token: null },
+    })
+    .eq("organization_id", organization_id)
+    .eq("service", "slack")
+    .eq("address", address)
+    .throwOnError();
+}
+
+/**
+ * Returns a usable access token for a connection, refreshing (and persisting)
+ * it first when it expires within `thresholdMs`. Rotation-off tokens carry no
+ * expires_at/refresh_token and pass straight through. A dead refresh token
+ * (DEAD_TOKEN_ERRORS) disconnects the connection before rethrowing, so every
+ * caller — dispatcher, webhook reads, cron sweep — converges on the same
+ * reconnect-prompt semantics.
+ */
+export async function ensureFreshToken(
+  client: SupabaseClient,
+  organization_id: string,
+  connection: SlackConnection,
+  thresholdMs = 60 * 1000,
+): Promise<string> {
+  const { access_token, refresh_token, expires_at } = connection.extra;
+
+  // No refresh_token = rotation off, the token never expires. With one, an
+  // absent expires_at is anomalous — treat it as expiring (refresh now).
+  const expiringSoon = !expires_at ||
+    new Date(expires_at).getTime() - Date.now() < thresholdMs;
+
+  if (!refresh_token || !expiringSoon) return access_token!;
+
+  try {
+    const access = await oauthRefresh(refresh_token);
+    const authed = access.authed_user;
+
+    if (!authed?.access_token) {
+      throw new SlackError("Refresh response missing access_token", {
+        cause: access,
+      });
+    }
+
+    // merge_update keeps the untouched extra keys.
+    await client
+      .from("organizations_addresses")
+      .update({
+        extra: {
+          access_token: authed.access_token,
+          refresh_token: authed.refresh_token ?? refresh_token,
+          expires_at: authed.expires_in
+            ? new Date(Date.now() + authed.expires_in * 1000).toISOString()
+            : undefined,
+        },
+      })
+      .eq("organization_id", organization_id)
+      .eq("service", "slack")
+      .eq("address", connection.address)
+      .throwOnError();
+
+    return authed.access_token;
+  } catch (error) {
+    const code = error instanceof SlackError
+      ? (error.cause as { error?: string } | undefined)?.error
+      : undefined;
+
+    if (code && DEAD_TOKEN_ERRORS.has(code)) {
+      log.error(
+        `Slack refresh token dead for ${connection.address} (${code}); disconnecting`,
+      );
+      await disconnectConnection(client, organization_id, connection.address);
+    }
+
+    throw error;
   }
 }

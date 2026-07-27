@@ -22,7 +22,13 @@ import type { Json } from "../_shared/db_types.ts";
 import { commitDispatchedMessage } from "../_shared/dispatch.ts";
 import { downloadFromStorage } from "../_shared/media.ts";
 import { markdownToSlack } from "../_shared/markdown.ts";
-import { oauthRefresh, slackApi, SlackError } from "../_shared/slack.ts";
+import {
+  DEAD_TOKEN_ERRORS,
+  ensureFreshToken,
+  slackApi,
+  type SlackConnection,
+  SlackError,
+} from "../_shared/slack.ts";
 import { shortcodeFromEmoji } from "../_shared/emoji.ts";
 
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -38,30 +44,13 @@ const RETRYABLE_SLACK_ERRORS = new Set([
   "service_unavailable",
 ]);
 
-/** Token is dead — also flip the connection so the UI prompts a reconnect. */
-const TOKEN_ERRORS = new Set([
-  "token_revoked",
-  "token_expired",
-  "invalid_auth",
-  "account_inactive",
-]);
-
 class PermanentError extends Error {}
-
-type Connection = {
-  address: string;
-  extra: {
-    access_token?: string | null;
-    refresh_token?: string | null;
-    expires_at?: string;
-  };
-};
 
 /** The sending member's personal connection for this workspace. */
 async function getConnection(
   client: SupabaseClient,
   message: MessageRow,
-): Promise<Connection> {
+): Promise<SlackConnection> {
   if (!message.agent_id) {
     throw new PermanentError(
       "Outgoing Slack messages require agent_id (the sending member)",
@@ -84,48 +73,7 @@ async function getConnection(
     );
   }
 
-  return data as Connection;
-}
-
-/** Refreshes a rotated token when it is (about to be) expired. */
-async function ensureFreshToken(
-  client: SupabaseClient,
-  organization_id: string,
-  connection: Connection,
-): Promise<string> {
-  const { access_token, refresh_token, expires_at } = connection.extra;
-
-  const expiringSoon = expires_at &&
-    new Date(expires_at).getTime() - Date.now() < 60 * 1000;
-
-  if (!expiringSoon || !refresh_token) return access_token!;
-
-  const access = await oauthRefresh(refresh_token);
-  const authed = access.authed_user;
-
-  if (!authed?.access_token) {
-    throw new SlackError("Refresh response missing access_token", {
-      cause: access,
-    });
-  }
-
-  await client
-    .from("organizations_addresses")
-    .update({
-      extra: {
-        access_token: authed.access_token,
-        refresh_token: authed.refresh_token ?? refresh_token,
-        expires_at: authed.expires_in
-          ? new Date(Date.now() + authed.expires_in * 1000).toISOString()
-          : undefined,
-      },
-    })
-    .eq("organization_id", organization_id)
-    .eq("service", "slack")
-    .eq("address", connection.address)
-    .throwOnError();
-
-  return authed.access_token;
+  return data as SlackConnection;
 }
 
 /**
@@ -307,9 +255,11 @@ Deno.serve(async (req) => {
       ? (error.cause as Json)
       : errorMessage;
 
-    if (slackCode && TOKEN_ERRORS.has(slackCode)) {
+    if (slackCode && DEAD_TOKEN_ERRORS.has(slackCode)) {
       // Dead token: fail the message and flip the connection so the UI
-      // prompts a reconnect (same semantics as tokens_revoked).
+      // prompts a reconnect (same semantics as tokens_revoked). A dead
+      // REFRESH token was already disconnected inside ensureFreshToken;
+      // this update is then a no-op.
       log.error("Dispatch failed (token error)", {
         message_id: message.id,
         code: slackCode,
@@ -317,7 +267,10 @@ Deno.serve(async (req) => {
 
       await client
         .from("organizations_addresses")
-        .update({ status: "disconnected" })
+        .update({
+          status: "disconnected",
+          extra: { access_token: null, refresh_token: null },
+        })
         .eq("organization_id", message.organization_id)
         .eq("service", "slack")
         .eq("agent_id", message.agent_id!)
@@ -329,7 +282,7 @@ Deno.serve(async (req) => {
       ? RETRYABLE_SLACK_ERRORS.has(slackCode)
       : !(error instanceof PermanentError) && !slackCode;
 
-    if (isRetryable && !(slackCode && TOKEN_ERRORS.has(slackCode))) {
+    if (isRetryable && !(slackCode && DEAD_TOKEN_ERRORS.has(slackCode))) {
       // Transient: surface the error but keep status.pending so the retry
       // cron re-fires; rethrow so this invocation returns 500.
       log.warn("Dispatch failed (transient, will retry)", {

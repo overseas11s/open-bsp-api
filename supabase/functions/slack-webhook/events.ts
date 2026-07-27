@@ -20,7 +20,9 @@ import type {
 } from "../_shared/supabase.ts";
 import { MAX_STORAGE_UPLOAD_SIZE, uploadToStorage } from "../_shared/media.ts";
 import {
+  ensureFreshToken,
   eventAuthorizations,
+  type SlackConnection,
   type SlackUser,
   usersInfo,
 } from "../_shared/slack.ts";
@@ -138,21 +140,38 @@ async function linkedAgent(
 
 /** Any connected member's token — for reads that need a workspace token
  * (users.info, file downloads); Slack scopes them per-user but directory and
- * shared-file reads are equivalent across members. */
+ * shared-file reads are equivalent across members. Expiry-aware: each
+ * candidate goes through ensureFreshToken (refreshing rotated tokens about
+ * to expire), falling back to the next member when a refresh fails. */
 async function anyWorkspaceToken(ctx: Ctx): Promise<string | null> {
   const { data } = await ctx.client
     .from("organizations_addresses")
-    .select("extra->>access_token")
+    .select("address, extra")
     .eq("organization_id", ctx.organization_id)
     .eq("service", "slack")
     .eq("status", "connected")
     .like("address", `${ctx.team}:%`)
     .not("extra->>access_token", "is", null)
-    .limit(1)
-    .maybeSingle()
     .throwOnError();
 
-  return data?.access_token ?? null;
+  for (const connection of (data ?? []) as SlackConnection[]) {
+    try {
+      return await ensureFreshToken(
+        ctx.client,
+        ctx.organization_id,
+        connection,
+      );
+    } catch (error) {
+      // Dead refresh tokens already disconnected the row inside
+      // ensureFreshToken; either way try the next connected member.
+      log.warn(
+        `Workspace token unusable for ${connection.address}, trying next`,
+        error,
+      );
+    }
+  }
+
+  return null;
 }
 
 /**

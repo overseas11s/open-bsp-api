@@ -36,10 +36,12 @@ Monetization (medium-term)
       table in the realtime publication and possibly `webhook_table`)
 - [x] Token-rotation cron — `refresh-slack-tokens` pg_cron job (every 4h) calls
       `slack-management/refresh-tokens`; a no-op until rotation is enabled on
-      the Slack app (connections without a refresh_token are skipped). Still
-      open when rotation lands: handle `invalid_refresh_token` by prompting
-      reconnect, make `anyWorkspaceToken` expiry-aware, and implement
-      `oauth.v2.exchange` for migrating pre-rotation tokens
+      the Slack app (connections without a refresh_token are skipped; nothing
+      breaks with rotation off — tokens are simply non-expiring). Rotation-on
+      hardening done: a dead refresh token (`invalid_refresh_token` etc.)
+      disconnects the connection inside the shared `ensureFreshToken` (reconnect
+      prompt in the UI), and the webhook's `anyWorkspaceToken` refreshes
+      expiring tokens, falling back to the next connected member
 - [ ] Review API keys — there is user-scoped content now; today API keys only
       pass the org-wide visibility branch (auth.uid() is null), revisit whether
       that stays the contract or keys grow a user scope

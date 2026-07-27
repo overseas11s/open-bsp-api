@@ -1,0 +1,90 @@
+# Slack integration status
+
+Branch `slack-integration`, as of 2026-07-27. Backend is feature-complete for
+v1; not yet in production. What stands between here and merge is the
+real-workspace E2E and the UI pieces.
+
+## Done (verified against the local DB)
+
+- **Schema remodel** — `conversation_address` + `sender_address` (soft
+  references), `group_address` dropped everywhere, `conversations_agents`
+  visibility table, cascade deletes on org-address removal. Squashed into one
+  migration plus the sender re-think follow-ups.
+- **Sender/dispatch model** — sender is a contact reference or null (null = the
+  account itself spoke). Dispatch = sender null + `status.pending` +
+  sendable-kind whitelist + no `content.tool`. Internal rows get pending
+  stripped on insert AND update (merge-trigger-proof). The Slack echo fills
+  sender fill-once (null → member's U…); non-null senders are immutable.
+- **Visibility & RLS** — `is_conversation_visible`: org-wide only for
+  customer-facing services; slack/discord/teams are members-only via
+  `conversations_agents`; owner branch for personal addresses.
+  `is_media_visible` on storage downloads (v1 file parts only). Owners/admins
+  cannot read members' conversations; API keys see shared-account content only.
+  Explicit grants for the new table (default privileges don't cover it).
+- **slack-management** — per-member OAuth connect (workspace anchor `T…` +
+  personal `T…:U…` rows, 409 if the workspace belongs to another org), sync
+  (users → contacts, channels → conversations + memberships), disconnect
+  (revokes token, clears secrets, keeps everything else — disconnect ≠ delete),
+  `/refresh-tokens` sweep.
+- **slack-webhook** — signature verify, 3-second ack via waitUntil, tenant by
+  team_id → anchor. Handlers: messages (file_share, thread_broadcast, edits,
+  deletions), reactions, member joined/left, channel rename/archive,
+  user_change, tokens_revoked, app_uninstalled. All writes idempotent on
+  `external_id = team:channel:ts` (Slack delivers once per app, so multiple
+  connected members never duplicate rows).
+- **slack-dispatcher** — credentials resolved by `message.agent_id` → the
+  member's personal row (never by sender_address). markdown↔mrkdwn conversion,
+  upload-then-reference file sends (synchronous ts), data-only reactions, error
+  taxonomy (retryable set; token errors → disconnect).
+- **Cross-service conventions** — data-only reactions
+  (`data {action, name, unicode}`, no `content.text`) across all
+  dispatchers/webhooks including the whatsmeow bridge; shortcode↔emoji map
+  (`_shared/emoji.ts`); bridge owns its wire mapping, generic functions are pure
+  pass-throughs. No v0 content support in any new logic.
+- **Token rotation** — connect stores `refresh_token`/`expires_at`, inline
+  refresh in the dispatcher (`ensureFreshToken`), `/refresh-tokens` sweep,
+  `refresh-slack-tokens` pg_cron job every 4h.
+- Docs: README Slack section, plugin API reference, TODO.md.
+
+## Token rotation posture
+
+The first Slack app will be created with rotation ON (the integration never
+shipped, so there are no pre-rotation tokens and `oauth.v2.exchange` is
+irrelevant). **If rotation is ever off, nothing breaks** — Slack just issues
+non-expiring tokens: no `refresh_token` means `ensureFreshToken` passes the
+stored token straight through, the sweep matches zero rows (cron is a no-op),
+and `anyWorkspaceToken` picks are always valid.
+
+Rotation-on hardening (done 2026-07-27): refresh logic is centralized in
+`_shared/slack.ts` `ensureFreshToken` — used by the dispatcher, the webhook and
+the cron sweep. A dead refresh token (`invalid_refresh_token`, `token_revoked`,
+…) flips the connection to `disconnected` and clears its secrets so the UI
+prompts a reconnect (same semantics as `tokens_revoked`). The webhook's
+`anyWorkspaceToken` is expiry-aware: it runs each candidate through
+`ensureFreshToken` and falls back to the next connected member when a refresh
+fails.
+
+## Left
+
+1. **Real-workspace E2E** — needs the dev Slack app created (rotation on) and
+   secrets set: `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`,
+   `SLACK_SIGNING_SECRET`, `SLACK_APP_TOKEN` (app-level, for
+   `apps.event.authorizations.list`). App manifest can be generated on demand.
+2. **UI (open-bsp-ui)** — thread panel (`messages.thread_id` has no UI); hide
+   unechoed Slack sends (sender null until the echo — other members would
+   briefly see them as their own); `conversations_agents` realtime subscription;
+   per-user scoping on the integrations page; commit the mirrored `db_types.ts`.
+3. **Phase B cleanup (post-merge)** — drop `direction` + `contact_address` after
+   migrating readers (agent-client/protocols/MCP/UI/n8n) to `content.tool`;
+   remove the compat derivation in `before_insert_on_messages`; drop direction
+   from wire contracts.
+4. **TODO.md reviews** — API keys vs user-scoped content, multi-table webhooks,
+   re-sync media-uri safety, user-scoped WhatsApp/Instagram connections.
+
+## Known acceptable gaps
+
+- Credentials live in `organizations_addresses.extra`, readable via the org-wide
+  select policy (acknowledged debt).
+- Conversations lack a unique constraint on (org, org_address,
+  conversation_address) — lookup-then-insert races acknowledged.
+- Webhook delivery is single-attempt (pg_net, no retry) — general TODO item.
