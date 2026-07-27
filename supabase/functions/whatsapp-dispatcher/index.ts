@@ -251,9 +251,8 @@ function outgoingMessageToEndpointMessage({
       };
     }
     case "reaction": {
-      // Cross-service reaction shape: honor data.action when present; fall
-      // back to text (Unicode display form, empty = removal, Meta's own
-      // convention on the wire).
+      // Reactions are data-only: {action, unicode}. Meta's wire form is the
+      // Unicode emoji; empty removes.
       const data = (content as {
         data?: { action?: "added" | "removed"; unicode?: string };
       }).data;
@@ -262,9 +261,7 @@ function outgoingMessageToEndpointMessage({
         ...baseMessage,
         type: "reaction",
         reaction: {
-          emoji: data?.action === "removed"
-            ? ""
-            : content.text || data?.unicode || "",
+          emoji: data?.action === "removed" ? "" : data?.unicode ?? "",
           message_id: content.re_message_id!,
         },
       };

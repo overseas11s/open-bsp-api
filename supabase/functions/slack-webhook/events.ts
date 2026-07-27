@@ -468,13 +468,8 @@ async function onReaction(ctx: Ctx, event: SlackEvent): Promise<void> {
         version: "1",
         type: "data",
         kind: "reaction",
-        // Convention: text is the display form — the Unicode emoji when
-        // mappable (`:name:` fallback for custom workspace emoji), empty on
-        // removal (WhatsApp's removal convention); data carries the full
-        // triple.
-        text: event.type === "reaction_added"
-          ? emojiFromShortcode(event.reaction) ?? `:${event.reaction}:`
-          : "",
+        // Data-only (rendering is the UI's job): {action, name, unicode};
+        // unicode absent for custom workspace emoji.
         data: {
           action: event.type === "reaction_added" ? "added" : "removed",
           name: event.reaction,

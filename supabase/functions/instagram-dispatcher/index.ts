@@ -131,15 +131,13 @@ async function outgoingMessageToPayloads({
         );
       }
 
-      // Cross-service reaction shape: honor data.action when present; fall
-      // back to text truthiness (empty = removal).
+      // Reactions are data-only: {action, unicode}; empty emoji = removal
+      // on the wire.
       const data = (content as {
         data?: { action?: "added" | "removed"; unicode?: string };
       }).data;
 
-      const emoji = data?.action === "removed"
-        ? ""
-        : content.text || data?.unicode || "";
+      const emoji = data?.action === "removed" ? "" : data?.unicode ?? "";
 
       return [
         emoji

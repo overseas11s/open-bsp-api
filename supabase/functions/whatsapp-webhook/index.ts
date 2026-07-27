@@ -315,15 +315,14 @@ function webhookMessageToIncomingMessage(
     }
 
     case "reaction": {
-      // Cross-service reaction shape (see ReactionPart): text = Unicode
-      // emoji, empty on removal; removals carry no emoji on WhatsApp
-      // (single reaction per user), hence no name/unicode then.
+      // Cross-service reaction shape (see ReactionPart), data-only;
+      // removals carry no emoji on WhatsApp (single reaction per user),
+      // hence no name/unicode then.
       const emoji = message.reaction.emoji;
       return {
         ...baseMessage,
         type: "data",
         kind: "reaction",
-        text: emoji || "",
         data: emoji
           ? { action: "added", name: emoji, unicode: emoji }
           : { action: "removed" },

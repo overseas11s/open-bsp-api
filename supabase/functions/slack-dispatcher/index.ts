@@ -159,11 +159,9 @@ async function send(
         );
       }
 
-      // Reaction convention: data carries {action, name, unicode}; text is
-      // the display form (empty on removal). The wire name resolves from
-      // data.name, else from text — a `:shortcode:` literal or a Unicode
-      // emoji mapped back through the shortcode table (covers text-only
-      // reactions from UIs/agents that speak Unicode).
+      // Reactions are data-only: {action, name, unicode}. The wire name
+      // resolves from data.name, else from data.unicode mapped back through
+      // the shortcode table.
       const data = (content as {
         data?: {
           action?: "added" | "removed";
@@ -172,19 +170,17 @@ async function send(
         };
       }).data;
 
-      const fromText = content.text
-        ? content.text.includes(":")
-          ? content.text.replaceAll(":", "")
-          : shortcodeFromEmoji(content.text)
-        : undefined;
+      if (!data?.action) {
+        throw new PermanentError("Slack reactions require data.action");
+      }
 
-      const name = data?.name ?? fromText ??
-        (data?.unicode ? shortcodeFromEmoji(data.unicode) : undefined);
-      const action = data?.action ?? (content.text ? "added" : "removed");
+      const name = data.name ??
+        (data.unicode ? shortcodeFromEmoji(data.unicode) : undefined);
+      const action = data.action;
 
       if (!name) {
         throw new PermanentError(
-          "Slack reactions need the emoji name (data.name or a :shortcode: text)",
+          "Slack reactions need the emoji name (data.name or data.unicode)",
         );
       }
 

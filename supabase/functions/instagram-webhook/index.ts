@@ -746,12 +746,9 @@ async function processMessage(request: Request): Promise<Response> {
             version: "1",
             type: "data",
             kind: "reaction",
-            // Cross-service reaction shape (see ReactionPart): text = the
-            // Unicode emoji, empty on removal; unreact events carry no
-            // emoji (single reaction per user), hence no name/unicode.
-            text: event.reaction.action === "unreact"
-              ? ""
-              : event.reaction.emoji ?? "",
+            // Cross-service reaction shape (see ReactionPart), data-only;
+            // unreact events carry no emoji (single reaction per user),
+            // hence no name/unicode.
             data: event.reaction.action === "unreact"
               ? { action: "removed" }
               : {
