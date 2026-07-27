@@ -1,6 +1,6 @@
 // Outgoing Slack dispatch. Triggered by dispatcher_edge_function() when a
-// message row lands with sender_address = organization_address (the workspace
-// anchor) and status.pending.
+// message row lands with sender_address null (the account spoke), a sendable
+// content kind, and status.pending.
 //
 // The wire identity is the MEMBER, not the workspace: the row carries
 // agent_id = the sending member, and their xoxp user token (personal address
@@ -276,7 +276,7 @@ Deno.serve(async (req) => {
   // Read receipts / typing indicators have no Slack Web API for user tokens —
   // the mark-as-read trigger can also never fire for Slack rows (they carry
   // no status.pending), so this is belt and suspenders.
-  if (message.sender_address !== message.organization_address) {
+  if (message.sender_address !== null) {
     return new Response();
   }
 

@@ -3,13 +3,14 @@
 //
 // Mapping rules (see slack-management/index.ts header for the address model):
 //   - conversation_address = channel id (D…/G…/C…), anchored to the team.
-//   - sender_address = the Slack user id; agent_id set when the sender is a
-//     linked member. All mirrored rows are direction 'incoming' (sender ≠ the
-//     workspace anchor) and carry a final status (delivered) — never
-//     status.pending, so neither the dispatcher nor agent-client fires.
+//   - sender_address = the Slack user id (a contact reference); agent_id set
+//     when the sender is a linked member. Mirrored rows carry a final status
+//     (delivered) — never status.pending, so no automation fires.
 //   - Sends made through OpenBSP come back as message events too; the
-//     external_id upsert merges them into the dispatcher's row, and when the
-//     echo lands first commitDispatchedMessage folds the duplicate.
+//     external_id upsert merges them into the dispatcher's row and FILLS its
+//     sender_address (null → the member who sent — fill-once in
+//     preserve_message_direction). When the echo lands first,
+//     commitDispatchedMessage folds the duplicate.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as log from "../_shared/logger.ts";
 import type {

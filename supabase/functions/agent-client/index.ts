@@ -854,7 +854,10 @@ Deno.serve(async (req) => {
           service: conv.service,
           organization_address: conv.organization_address,
           contact_address: conv.contact_address,
-          direction: org.extra.error_messages_direction || "internal",
+          // Agent errors are record-only (extra.error_messages_direction is
+          // deprecated — dispatching errors to the end user is gone; OpenBSP
+          // is a communication layer and internal rows never dispatch).
+          direction: "internal" as const,
           agent_id: agent.id,
           content: {
             version: "1" as const,

@@ -9,11 +9,13 @@
 //   - personal: address = `${team}:${user}` (T…:U…), agent_id = the member's
 //     agent. Holds the user token in extra. One per connected member.
 //
-// Outgoing Slack messages are inserted with sender_address = the anchor
-// (organization_address) + agent_id = the sending member; the dispatcher
-// resolves the member's token via agent_id. This keeps the schema rule
-// "sender = organization_address → dispatch" intact even though the actual
-// wire identity is the member.
+// Outgoing Slack messages are inserted with sender_address null (the account
+// spoke) + agent_id = the sending member; the dispatcher resolves the
+// member's token via agent_id. The echo later fills sender_address with the
+// member's Slack user id (fill-once in preserve_message_direction), which is
+// when other members' UIs can attribute the message — clients should prefer
+// not to render unechoed (sender null) rows in Slack conversations to avoid
+// mis-attributing them as their own.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { Context, Hono } from "@hono/hono";
 import { cors } from "jsr:@hono/hono/cors";

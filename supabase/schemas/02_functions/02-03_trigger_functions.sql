@@ -148,22 +148,32 @@ begin
   -- contact_address; new writers send sender_address/conversation_address
   -- only. Derive whichever side is missing so both stay consistent until
   -- direction and contact_address are dropped.
+  --
+  -- sender_address is a contact reference or null: the peer who authored the
+  -- message (a phone/BSUID, a Slack workspace member — ties to
+  -- contacts_addresses), or null when the account itself spoke. Deliverable
+  -- vs record-only is decided by content kind + status.pending, not by
+  -- authorship (see the dispatch trigger's kind whitelist).
   if new.conversation_address is null then
     new.conversation_address := new.contact_address;
   end if;
 
-  if new.sender_address is null and new.direction is not null then
-    new.sender_address := case new.direction
-      when 'outgoing'::public.direction then new.organization_address
-      when 'incoming'::public.direction then new.contact_address
-      else null -- internal
-    end;
+  if new.sender_address is null and new.direction = 'incoming'::public.direction then
+    new.sender_address := new.contact_address;
   elsif new.direction is null then
     new.direction := case
-      when new.sender_address is null then 'internal'::public.direction
-      when new.sender_address = new.organization_address then 'outgoing'::public.direction
-      else 'incoming'::public.direction
+      when new.sender_address is not null then 'incoming'::public.direction
+      when new.content->'tool' is not null then 'internal'::public.direction
+      else 'outgoing'::public.direction
     end;
+  end if;
+
+  -- Internal rows (tool traces, notes, agent errors) are record-only and
+  -- never need the pending arm bit — strip it so no automation (dispatch,
+  -- retry sweeps, media preprocessing) can ever pick them up. This also IS
+  -- the deprecation of dispatching agent errors.
+  if new.direction = 'internal'::public.direction then
+    new.status := new.status - 'pending';
   end if;
 
   -- If conversation_id is already provided, proceed as is
@@ -212,18 +222,18 @@ begin
 end;
 $$;
 
--- BEFORE UPDATE: authorship is set once at insert and never changes. Upserts
--- (onConflict external_id) carry direction/sender in the incoming row, so
--- without this an echo/status row could flip an existing message's authorship
--- — e.g. an Instagram self-message echo (which we record as incoming) landing
--- on the outgoing row we already sent. Keep the original values; updates only
--- ever merge content/status.
+-- BEFORE UPDATE: addressing is fill-once. direction/conversation_address are
+-- set at insert and never change; sender_address may be FILLED (null → the
+-- actual author) but never flipped — the Slack echo of a send from OpenBSP
+-- updates the dispatched row (sender null) with the member who sent it, while
+-- an Instagram self-message echo landing on an already-attributed row cannot
+-- rewrite it. Updates otherwise only merge content/status.
 create function public.preserve_message_direction() returns trigger
 language plpgsql
 as $$
 begin
   new.direction := old.direction;
-  new.sender_address := old.sender_address;
+  new.sender_address := coalesce(old.sender_address, new.sender_address);
   new.conversation_address := old.conversation_address;
   return new;
 end;

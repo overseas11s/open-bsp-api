@@ -130,7 +130,7 @@ All tables are scoped by \`organization_id\` via Row Level Security (RLS).
 | agent_id | uuid | FK → agents.id |
 | external_id | text | provider message ID |
 | conversation_address | text | the peer: individual or group/channel address |
-| sender_address | text | author; null = internal, = organization_address = sent by the account |
+| sender_address | text | the contact who authored it (ties to contacts_addresses); null = the account itself spoke (sends, echoes, internal) |
 | timestamp | timestamptz | default: now() |
 | created_at | timestamptz | default: now() |
 | updated_at | timestamptz | default: now() |

@@ -1246,6 +1246,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_media_visible: { Args: { object_name: string }; Returns: boolean }
       member_self_update_rules: {
         Args: {
           p_ai: boolean

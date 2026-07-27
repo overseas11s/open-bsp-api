@@ -26,6 +26,11 @@ Monetization (medium-term)
 
 - [ ] Thread panel UI in open-bsp-ui — `messages.thread_id` exists but has no
       UI; Slack without threads is broken
+- [ ] UI: don't render unechoed Slack sends — a dispatched row has
+      sender_address null until the echo fills in the member's Slack user id, so
+      other members would briefly see it attributed as their own; hide (or mark
+      pending) rows with sender null + status.accepted in Slack conversations
+      until the echo lands
 - [ ] Realtime visibility updates — subscribe the UI to `conversations_agents`
       changes so a newly-visible conversation appears without refresh (needs the
       table in the realtime publication and possibly `webhook_table`)

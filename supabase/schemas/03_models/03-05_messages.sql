@@ -22,10 +22,13 @@ create table public.messages (
   -- and the legacy columns get dropped):
   -- conversation_address — the peer the conversation is with (individual or
   --   group/channel). Soft reference, like thread_id.
-  -- sender_address — who authored the message; does NOT imply an agent.
-  --   null                    → internal (tool calls/results, notes)
-  --   = organization_address  → sent by the connected account ("outgoing")
-  --   anything else           → sent by a peer ("incoming")
+  -- sender_address — the CONTACT who authored the message (a WhatsApp
+  --   phone/BSUID, a Slack workspace member — ties to contacts_addresses,
+  --   soft reference), or null when the account itself spoke (UI/AI sends,
+  --   echoes, history, tool traces). Deliverability is NOT an authorship
+  --   question: the dispatch trigger arms on status.pending plus a sendable
+  --   content kind. Fill-once: a Slack echo fills null with the member who
+  --   actually sent; a non-null sender is immutable.
   conversation_address text,
   sender_address text,
   ----
@@ -116,7 +119,6 @@ on public.messages
 for each row
 when (
   new.sender_address is not null
-  and new.sender_address <> new.organization_address
   and (new.status ->> 'pending') is not null
 )
 execute function public.edge_function('/agent-client', 'post');
@@ -127,7 +129,6 @@ on public.messages
 for each row
 when (
   new.sender_address is not null
-  and new.sender_address <> new.organization_address
   and new.service <> 'local'::public.service
   and (
     (old.status ->> 'read') <> (new.status ->> 'read')
@@ -142,13 +143,21 @@ after insert
 on public.messages
 for each row
 when (
-  new.sender_address = new.organization_address
+  new.sender_address is null
   and new.timestamp <= now()
   and (new.status ->> 'pending') is not null
+  -- The sendable-kind whitelist: the single source of truth for what OpenBSP
+  -- can deliver. Record-only kinds (interactive, unsupported, shares, tool
+  -- traces, …) can never dispatch, even if a writer arms them.
+  and (new.content ->> 'kind') in (
+    'text', 'audio', 'image', 'video', 'document', 'sticker', 'file',
+    'media', 'reaction', 'location', 'contacts', 'template'
+  )
+  and new.content -> 'tool' is null
 )
 execute function public.dispatcher_edge_function();
 
--- There are four sources of account-authored (sender = organization_address)
+-- There are four sources of account-authored (sender_address null)
 -- messages:
 -- 1. history webhook
 -- 2. messages echoes webhook (messages sent from WA Business app)
@@ -162,7 +171,8 @@ after insert
 on public.messages
 for each row
 when (
-  new.sender_address = new.organization_address
+  new.sender_address is null
+  and new.content -> 'tool' is null -- tool traces are not messages
   and new.service <> 'local'::public.service
   and new.timestamp <= now() -- messages not in the future
   and new.timestamp >= now() - interval '10 seconds' -- recent messages
@@ -174,11 +184,7 @@ after insert
 on public.messages
 for each row
 when (
-  (
-    new.direction = 'outgoing'::public.direction
-    or new.direction = 'incoming'::public.direction
-  )
-  and (new.status ->> 'pending') is not null
+  (new.status ->> 'pending') is not null
   and (new.content ->> 'type') = 'file'
 )
 execute function public.edge_function('/media-preprocessor', 'post');
