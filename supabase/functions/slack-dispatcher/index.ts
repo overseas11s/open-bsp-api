@@ -23,6 +23,7 @@ import { commitDispatchedMessage } from "../_shared/dispatch.ts";
 import { downloadFromStorage } from "../_shared/media.ts";
 import { markdownToSlack } from "../_shared/markdown.ts";
 import { oauthRefresh, slackApi, SlackError } from "../_shared/slack.ts";
+import { shortcodeFromEmoji } from "../_shared/emoji.ts";
 
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -159,13 +160,26 @@ async function send(
       }
 
       // Reaction convention: data carries {action, name, unicode}; text is
-      // the display form (empty on removal). Meta-style TextPart reactions
-      // (text only) still work for adds: the shortcode is derived from text.
+      // the display form (empty on removal). The wire name resolves from
+      // data.name, else from text — a `:shortcode:` literal or a Unicode
+      // emoji mapped back through the shortcode table (covers text-only
+      // reactions from UIs/agents that speak Unicode).
       const data = (content as {
-        data?: { action?: "added" | "removed"; name?: string };
+        data?: {
+          action?: "added" | "removed";
+          name?: string;
+          unicode?: string;
+        };
       }).data;
 
-      const name = data?.name ?? content.text?.replaceAll(":", "");
+      const fromText = content.text
+        ? content.text.includes(":")
+          ? content.text.replaceAll(":", "")
+          : shortcodeFromEmoji(content.text)
+        : undefined;
+
+      const name = data?.name ?? fromText ??
+        (data?.unicode ? shortcodeFromEmoji(data.unicode) : undefined);
       const action = data?.action ?? (content.text ? "added" : "removed");
 
       if (!name) {

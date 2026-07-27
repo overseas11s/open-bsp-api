@@ -44,14 +44,12 @@ Monetization (medium-term)
       is_conversation_visible); needs management/UI work
 - [x] Storage RLS for user-scoped connections — is_media_visible() on the
       storage.objects download policy: unreferenced objects stay org-scoped,
-      referenced ones require a visible referencing message (v1 file parts
-      only; v0 legacy media stays org-scoped)
-- [ ] Reaction shortcode↔emoji map — the reaction convention is settled
-      (`text` = Unicode display form, empty on removal; `data` always
-      `{action, name, unicode}` with `name` = service-native id) and wired
-      into slack-webhook/slack-dispatcher (removal included); what's missing
-      is the shortcode↔emoji map in \_shared so Slack fills `data.unicode`
-      and `text` renders "👍" instead of ":thumbsup:"
+      referenced ones require a visible referencing message (v1 file parts only;
+      v0 legacy media stays org-scoped)
+- [x] Reaction shortcode↔emoji map — `_shared/emoji.ts` generated from
+      iamcal/emoji-data (the dataset Slack uses): Slack fills `data.unicode` and
+      renders "👍" instead of ":thumbsup:"; the dispatcher maps Unicode back to
+      wire names (custom workspace emoji fall back to `:name:`)
 
 ## General
 

@@ -24,6 +24,7 @@ import {
   usersInfo,
 } from "../_shared/slack.ts";
 import { slackToMarkdown } from "../_shared/markdown.ts";
+import { emojiFromShortcode } from "../_shared/emoji.ts";
 
 export type SlackEnvelope = {
   type: "url_verification" | "event_callback" | string;
@@ -468,13 +469,16 @@ async function onReaction(ctx: Ctx, event: SlackEvent): Promise<void> {
         type: "data",
         kind: "reaction",
         // Convention: text is the display form — the Unicode emoji when
-        // mappable (shortcode map pending, `:name:` until then), empty on
-        // removal (WhatsApp's removal convention); data always carries the
-        // full triple.
-        text: event.type === "reaction_added" ? `:${event.reaction}:` : "",
+        // mappable (`:name:` fallback for custom workspace emoji), empty on
+        // removal (WhatsApp's removal convention); data carries the full
+        // triple.
+        text: event.type === "reaction_added"
+          ? emojiFromShortcode(event.reaction) ?? `:${event.reaction}:`
+          : "",
         data: {
           action: event.type === "reaction_added" ? "added" : "removed",
           name: event.reaction,
+          unicode: emojiFromShortcode(event.reaction),
         },
         re_message_id: externalId(ctx.team, channel, ts),
       } as IncomingMessage,
