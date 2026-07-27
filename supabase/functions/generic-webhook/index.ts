@@ -22,10 +22,11 @@
 //
 //   {
 //     organization_address: string,     // the connector session's own address
-//     messages?:  [{ external_id, direction, contact_address?, group_address?,
-//                    thread_id?, content, status?, timestamp }],
-//     statuses?:  [{ external_id, contact_address?, group_address?, status }],
-//                                       // delivery receipts
+//     messages?:  [{ external_id, direction, contact_address?,
+//                    conversation_address?, thread_id?, content, status?,
+//                    timestamp }],
+//     statuses?:  [{ external_id, contact_address?, conversation_address?,
+//                    status }],         // delivery receipts
 //     contacts?:  [{ address, extra? }],// names, avatars
 //     groups?:    [{ address, name? }], // group subject → conversation name
 //     edits?:     [{ original_message_id, text, timestamp }],
@@ -170,8 +171,10 @@ async function handle(req: Request): Promise<Response> {
     messages?: Array<{
       external_id: string;
       direction: "incoming" | "outgoing";
+      /** The individual sender (per-message author) */
       contact_address?: string;
-      group_address?: string;
+      /** The chat: group JID, or the peer address for direct chats */
+      conversation_address?: string;
       thread_id?: string;
       content: Json;
       status?: Record<string, Json>;
@@ -183,7 +186,7 @@ async function handle(req: Request): Promise<Response> {
       // trigger, which runs ahead of conflict detection and resolves a
       // conversation even though the upsert only ever merges status.
       contact_address?: string;
-      group_address?: string;
+      conversation_address?: string;
       status: Record<string, Json>;
     }>;
     contacts?: Array<{
@@ -232,10 +235,10 @@ async function handle(req: Request): Promise<Response> {
   // the Meta webhooks: the row exists (the dispatcher inserted it), so the
   // upsert only merges status. See whatsapp-webhook for the rationale on
   // upserting statuses and messages in two separate statements.
-  // The wire contract still says contact_address/group_address (the bridge
-  // predates the unified addressing); the DB dropped group_address, so map:
-  // conversation_address = the chat (group, or the contact for direct chats),
-  // contact_address = the individual sender (kept for legacy readers).
+  // Connectors speak the unified addressing natively: conversation_address =
+  // the chat, contact_address = the individual sender (kept for legacy
+  // readers). Rows pass through; the BEFORE INSERT trigger derives whatever
+  // an older connector build omits.
   const statuses: MessageInsert[] = (batch.statuses ?? []).map((status) => ({
     organization_id,
     service,
@@ -243,7 +246,7 @@ async function handle(req: Request): Promise<Response> {
     direction: "outgoing" as const,
     external_id: status.external_id,
     contact_address: status.contact_address,
-    conversation_address: status.group_address ?? status.contact_address,
+    conversation_address: status.conversation_address,
     content: {} as OutgoingMessage, // this will get merged (it won't overwrite)
     status: status.status as OutgoingStatus,
   }));
@@ -256,7 +259,7 @@ async function handle(req: Request): Promise<Response> {
         organization_address,
         external_id: message.external_id,
         contact_address: message.contact_address,
-        conversation_address: message.group_address ?? message.contact_address,
+        conversation_address: message.conversation_address,
         thread_id: message.thread_id,
         timestamp: message.timestamp,
       };
