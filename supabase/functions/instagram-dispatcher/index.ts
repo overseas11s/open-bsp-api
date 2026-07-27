@@ -130,15 +130,25 @@ async function outgoingMessageToPayloads({
           "Cannot send an Instagram reaction without re_message_id",
         );
       }
-      // An empty emoji removes the reaction.
+
+      // Cross-service reaction shape: honor data.action when present; fall
+      // back to text truthiness (empty = removal).
+      const data = (content as {
+        data?: { action?: "added" | "removed"; unicode?: string };
+      }).data;
+
+      const emoji = data?.action === "removed"
+        ? ""
+        : content.text || data?.unicode || "";
+
       return [
-        content.text
+        emoji
           ? {
             recipient,
             sender_action: "react",
             payload: {
               message_id: content.re_message_id,
-              reaction: content.text,
+              reaction: emoji,
             },
           }
           : {

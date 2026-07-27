@@ -177,21 +177,22 @@ type UnsupportedPart = DataPart<
 // Synthetic content for messaging_referral events (no message attached).
 type ReferralPart = DataPart<"referral", InstagramReferral>;
 
-// Slack/Discord-style reactions: multi-user, multi-emoji, with explicit
-// add/remove semantics — modeled as data (Meta reactions stay TextPart kind
-// 'reaction'). One row per reaction event; re_message_id points at the
-// reacted message's external id.
+// Reactions, all services (2026-07-26 convention). One row per reaction
+// event; re_message_id points at the reacted message's external id.
 //
-// Convention (2026-07-26): `text` is the display form — the Unicode emoji
-// when mappable, empty on removal (matching WhatsApp's removal convention).
-// `data` always carries the full triple so removal knows which emoji and
-// dispatchers know the wire form.
+// `text` is the display form — the Unicode emoji when known, empty on
+// removal (WhatsApp's historic removal convention, now uniform). `data`
+// carries the full detail; `name`/`unicode` are optional only because Meta
+// removal events don't say which emoji is being removed (unambiguous there:
+// Meta allows a single reaction per user per message). Legacy rows predate
+// this shape as TextPart kind 'reaction' — readers accept both.
 export type ReactionPart = DataPart<"reaction", {
   action: "added" | "removed";
-  /** Emoji name as the service reports it, e.g. "thumbsup" */
-  name: string;
-  /** Unicode rendering, e.g. "👍" — pending the shortcode↔emoji map for
-   * Slack/Discord (see TODO.md); Meta sets it always. */
+  /** Service-native emoji id, e.g. Slack "thumbsup", Discord custom-emoji
+   * id; for Meta the Unicode emoji itself. */
+  name?: string;
+  /** Unicode rendering, e.g. "👍" — for Slack/Discord pending the
+   * shortcode↔emoji map (see TODO.md); Meta sets it always on adds. */
   unicode?: string;
 }>;
 

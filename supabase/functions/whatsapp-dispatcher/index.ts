@@ -251,13 +251,20 @@ function outgoingMessageToEndpointMessage({
       };
     }
     case "reaction": {
+      // Cross-service reaction shape: honor data.action when present; fall
+      // back to text (Unicode display form, empty = removal, Meta's own
+      // convention on the wire).
+      const data = (content as {
+        data?: { action?: "added" | "removed"; unicode?: string };
+      }).data;
+
       return {
         ...baseMessage,
         type: "reaction",
         reaction: {
-          // Empty = removal (Meta's convention); text is optional on the
-          // cross-service ReactionPart shape.
-          emoji: content.text ?? "",
+          emoji: data?.action === "removed"
+            ? ""
+            : content.text || data?.unicode || "",
           message_id: content.re_message_id!,
         },
       };

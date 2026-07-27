@@ -744,13 +744,21 @@ async function processMessage(request: Request): Promise<Response> {
           direction: "incoming",
           content: {
             version: "1",
-            type: "text",
+            type: "data",
             kind: "reaction",
-            // An "unreact" removes the reaction; model it as an empty emoji,
-            // the same convention WhatsApp uses for a removed reaction.
+            // Cross-service reaction shape (see ReactionPart): text = the
+            // Unicode emoji, empty on removal; unreact events carry no
+            // emoji (single reaction per user), hence no name/unicode.
             text: event.reaction.action === "unreact"
               ? ""
               : event.reaction.emoji ?? "",
+            data: event.reaction.action === "unreact"
+              ? { action: "removed" }
+              : {
+                action: "added",
+                name: event.reaction.emoji,
+                unicode: event.reaction.emoji,
+              },
             re_message_id: event.reaction.mid,
           },
           timestamp,

@@ -37,6 +37,12 @@
 // agent/media-preprocessor triggers; HISTORY imports and echoes carry an
 // explicit final status (e.g. {"read": ...}) and are therefore inert. Do not
 // add a separate history flag.
+//
+// Reactions: content passes through verbatim, so connectors should emit the
+// cross-service ReactionPart shape (type 'data', kind 'reaction', text =
+// Unicode emoji or "" on removal, data {action, name, unicode} — see
+// _shared/types/message_types.ts). Legacy TextPart kind 'reaction' payloads
+// from older bridge builds are still stored as-is; readers accept both.
 import * as log from "../_shared/logger.ts";
 import {
   type ContactAddressInsert,
