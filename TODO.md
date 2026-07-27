@@ -34,9 +34,12 @@ Monetization (medium-term)
 - [ ] Realtime visibility updates — subscribe the UI to `conversations_agents`
       changes so a newly-visible conversation appears without refresh (needs the
       table in the realtime publication and possibly `webhook_table`)
-- [ ] Token-rotation cron — schedule `slack-management/refresh-tokens` (pg_cron,
-      like Instagram's) once rotation is enabled on the Slack app; it is a no-op
-      until connections carry a refresh_token
+- [x] Token-rotation cron — `refresh-slack-tokens` pg_cron job (every 4h) calls
+      `slack-management/refresh-tokens`; a no-op until rotation is enabled on
+      the Slack app (connections without a refresh_token are skipped). Still
+      open when rotation lands: handle `invalid_refresh_token` by prompting
+      reconnect, make `anyWorkspaceToken` expiry-aware, and implement
+      `oauth.v2.exchange` for migrating pre-rotation tokens
 - [ ] Review API keys — there is user-scoped content now; today API keys only
       pass the org-wide visibility branch (auth.uid() is null), revisit whether
       that stays the contract or keys grow a user scope
