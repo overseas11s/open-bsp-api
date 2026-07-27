@@ -15,6 +15,7 @@ import {
 } from "../_shared/supabase.ts";
 import { createSignedUrl } from "../_shared/media.ts";
 import { commitDispatchedMessage } from "../_shared/dispatch.ts";
+import { flagNeedsReauth } from "../_shared/instagram.ts";
 import { Json } from "../_shared/db_types.ts";
 
 const API_VERSION = "v25.0";
@@ -325,6 +326,17 @@ Deno.serve(async (req) => {
         error: errorMessage,
       });
 
+      // 190 = token expired/invalidated (password change, revocation). Flag
+      // the connection so the UI prompts a re-login — the refresh sweep only
+      // looks near expiry and would miss a mid-life revocation for weeks.
+      if (metaCode === 190) {
+        await flagNeedsReauth(
+          client,
+          message.organization_id,
+          message.organization_address,
+        );
+      }
+
       await client
         .from("messages")
         .update({
@@ -366,22 +378,44 @@ Deno.serve(async (req) => {
     // the recipient and the action (no message_id, unlike WhatsApp's read mark).
     const recipient = { id: message.contact_address };
 
-    if (readReceipt) {
-      const payload: IgSenderAction = { recipient, sender_action: "mark_seen" };
-      await postPayloadToInstagramEndpoint({
-        payload,
-        ig_user_id: message.organization_address,
-        access_token,
-      });
-    }
+    try {
+      if (readReceipt) {
+        const payload: IgSenderAction = {
+          recipient,
+          sender_action: "mark_seen",
+        };
+        await postPayloadToInstagramEndpoint({
+          payload,
+          ig_user_id: message.organization_address,
+          access_token,
+        });
+      }
 
-    if (typingIndicator) {
-      const payload: IgSenderAction = { recipient, sender_action: "typing_on" };
-      await postPayloadToInstagramEndpoint({
-        payload,
-        ig_user_id: message.organization_address,
-        access_token,
-      });
+      if (typingIndicator) {
+        const payload: IgSenderAction = {
+          recipient,
+          sender_action: "typing_on",
+        };
+        await postPayloadToInstagramEndpoint({
+          payload,
+          ig_user_id: message.organization_address,
+          access_token,
+        });
+      }
+    } catch (error) {
+      const metaCode = error instanceof InstagramError
+        ? (error.cause as IgErrorResponse | undefined)?.error?.code
+        : undefined;
+
+      if (metaCode === 190) {
+        await flagNeedsReauth(
+          client,
+          message.organization_id,
+          message.organization_address,
+        );
+      }
+
+      throw error;
     }
   } else {
     throw new Error(
