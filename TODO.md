@@ -47,9 +47,10 @@ Monetization (medium-term)
       referenced ones require a visible referencing message (v1 file parts only;
       v0 legacy media stays org-scoped)
 - [x] Reaction shortcode↔emoji map — `_shared/emoji.ts` generated from
-      iamcal/emoji-data (the dataset Slack uses): Slack fills `data.unicode` and
-      renders "👍" instead of ":thumbsup:"; the dispatcher maps Unicode back to
-      wire names (custom workspace emoji fall back to `:name:`)
+      iamcal/emoji-data (the dataset Slack uses). Reactions are data-only
+      (`data {action, name, unicode}`, no content.text): Slack fills
+      `data.unicode`, dispatchers map Unicode back to wire names; UIs render
+      from data.unicode with `:name:` fallback for custom emoji
 
 ## General
 
