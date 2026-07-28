@@ -263,6 +263,13 @@ app.post("/slack-management/connect", async (c) => {
             access_token: bot_token,
             bot_user_id: access.bot_user_id,
             bot_scopes: access.scope,
+            // Bot tokens rotate too when rotation is enabled; store the
+            // refresh side so ensureFreshToken can renew the anchor exactly
+            // as it does a member's personal row.
+            refresh_token: access.refresh_token,
+            expires_at: access.expires_in
+              ? new Date(Date.now() + access.expires_in * 1000).toISOString()
+              : undefined,
           }
           : {}),
       },

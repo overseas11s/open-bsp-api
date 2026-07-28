@@ -59,9 +59,12 @@ real-workspace E2E and the UI pieces.
   `external_id = team:channel:ts` (Slack delivers once per app, so multiple
   connected members never duplicate rows).
 - **slack-dispatcher** — credentials resolved by `message.agent_id` → the
-  member's personal row (never by sender_address). markdown↔mrkdwn conversion,
-  upload-then-reference file sends (synchronous ts), data-only reactions, error
-  taxonomy (retryable set; token errors → disconnect).
+  member's personal row (never by sender_address), falling back to the bot token
+  on the anchor when the row names no agent or that agent has no connection: the
+  bot is the shared inbox, so API-key/automation/AI rows post as the app instead
+  of failing. markdown↔mrkdwn conversion, upload-then-reference file sends
+  (synchronous ts), data-only reactions, error taxonomy (retryable set; token
+  errors → disconnect).
 - **Cross-service conventions** — data-only reactions
   (`data {action, name, unicode}`, no `content.text`) across all
   dispatchers/webhooks including the whatsmeow bridge; shortcode↔emoji map

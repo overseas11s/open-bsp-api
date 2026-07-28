@@ -2,10 +2,12 @@
 // message row lands with sender_address null (the account spoke), a sendable
 // content kind, and status.pending.
 //
-// The wire identity is the MEMBER, not the workspace: the row carries
-// agent_id = the sending member, and their xoxp user token (personal address
-// row T…:U…) is what talks to Slack — chat.postMessage with a user token
-// posts genuinely as the user.
+// The wire identity is the MEMBER when the row names an agent with a personal
+// connection: their xoxp user token (address row T…:U…) is what talks to
+// Slack, and chat.postMessage with a user token posts genuinely as them.
+// Otherwise it is the workspace BOT, whose token lives on the ownerless
+// anchor — the bot is the shared inbox, so rows without a member (API keys,
+// automations, AI agents) go out as the app instead of failing.
 //
 // external_id is stamped as `${team}:${channel}:${ts}` — the same format the
 // webhook uses — so the echo Slack sends back merges into this row (or, if
@@ -46,34 +48,55 @@ const RETRYABLE_SLACK_ERRORS = new Set([
 
 class PermanentError extends Error {}
 
-/** The sending member's personal connection for this workspace. */
+/**
+ * Which identity posts this message. A member's personal connection when the
+ * row names an agent that has one — chat.postMessage with an xoxp token posts
+ * genuinely as that person. Otherwise the workspace bot, whose token lives on
+ * the ownerless anchor: the bot is the shared inbox, so a row with no agent
+ * (an API key, an automation, an AI agent) goes out as the app rather than
+ * failing. Falling back is deliberate — "no member" is not an error when a
+ * shared-inbox connection exists.
+ */
 async function getConnection(
   client: SupabaseClient,
   message: MessageRow,
-): Promise<SlackConnection> {
-  if (!message.agent_id) {
-    throw new PermanentError(
-      "Outgoing Slack messages require agent_id (the sending member)",
-    );
+): Promise<{ connection: SlackConnection; asBot: boolean }> {
+  if (message.agent_id) {
+    const { data } = await client
+      .from("organizations_addresses")
+      .select("address, status, extra")
+      .eq("organization_id", message.organization_id)
+      .eq("service", "slack")
+      .eq("agent_id", message.agent_id)
+      .like("address", `${message.organization_address}:%`)
+      .maybeSingle()
+      .throwOnError();
+
+    if (data && data.status === "connected" && data.extra?.access_token) {
+      return { connection: data as SlackConnection, asBot: false };
+    }
   }
 
-  const { data } = await client
+  // The anchor row (address = team id, ownerless). It only carries an
+  // access_token once a bot install granted one.
+  const { data: anchor } = await client
     .from("organizations_addresses")
     .select("address, status, extra")
     .eq("organization_id", message.organization_id)
     .eq("service", "slack")
-    .eq("agent_id", message.agent_id)
-    .like("address", `${message.organization_address}:%`)
+    .eq("address", message.organization_address!)
     .maybeSingle()
     .throwOnError();
 
-  if (!data || data.status !== "connected" || !data.extra?.access_token) {
-    throw new PermanentError(
-      `Agent ${message.agent_id} has no connected Slack account for workspace ${message.organization_address}`,
-    );
+  if (anchor && anchor.status === "connected" && anchor.extra?.access_token) {
+    return { connection: anchor as SlackConnection, asBot: true };
   }
 
-  return data as SlackConnection;
+  throw new PermanentError(
+    message.agent_id
+      ? `Agent ${message.agent_id} has no connected Slack account for workspace ${message.organization_address}, and no bot is installed`
+      : `Message has no agent_id and no bot is installed for workspace ${message.organization_address}`,
+  );
 }
 
 /**
@@ -229,12 +252,18 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const connection = await getConnection(client, message);
+    const { connection, asBot } = await getConnection(client, message);
     const accessToken = await ensureFreshToken(
       client,
       message.organization_id,
       connection,
     );
+
+    log.info("Slack dispatch", {
+      message_id: message.id,
+      as: asBot ? "bot" : "member",
+      address: connection.address,
+    });
 
     const ts = await send(client, accessToken, message);
 
