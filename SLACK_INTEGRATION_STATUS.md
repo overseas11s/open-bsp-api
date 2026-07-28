@@ -109,14 +109,7 @@ fails.
    migrating readers (agent-client/protocols/MCP/UI/n8n) to `content.tool`;
    remove the compat derivation in `before_insert_on_messages`; drop direction
    from wire contracts.
-4. **Bot mode ingestion** — OAuth accepts `mode=user|bot|both` and a bot token
-   is stored on the workspace anchor, but nothing writes
-   `conversations_system.private = false` yet, and `bot_events` are commented
-   out in the manifest for that reason: enabling them before the writer exists
-   would ingest conversations with no `conversations_agents` row, visible to
-   nobody. Decision already taken — bot presence makes a container org-visible
-   regardless of whether it is private.
-5. **TODO.md reviews** — API keys vs user-scoped content, multi-table webhooks,
+4. **TODO.md reviews** — API keys vs user-scoped content, multi-table webhooks,
    re-sync media-uri safety, user-scoped WhatsApp/Instagram connections.
 
 ## Known acceptable gaps
