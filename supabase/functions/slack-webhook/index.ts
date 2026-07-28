@@ -90,7 +90,7 @@ Deno.serve(async (req) => {
   // (stops Slack retrying a workspace we don't serve).
   const { data: anchor } = await client
     .from("organizations_addresses")
-    .select("organization_id")
+    .select("organization_id, extra")
     .eq("service", "slack")
     .eq("address", envelope.team_id ?? "")
     .maybeSingle()
@@ -101,15 +101,27 @@ Deno.serve(async (req) => {
     return new Response("Unknown workspace", { status: 404 });
   }
 
-  const work = handleEvent(client, anchor.organization_id, envelope).catch(
-    (error) => {
-      log.error(`Slack event processing failed (${envelope.event?.type})`, {
-        error: error instanceof Error ? error.message : error,
-        event_id: envelope.event_id,
-        team: envelope.team_id,
-      });
-    },
-  );
+  // The bot's own Slack user id, stored on the anchor when a bot install
+  // granted one. Null in user-only workspaces — then nothing is ever
+  // bot-reachable and every conversation stays member-gated.
+  const bot_user_id =
+    (anchor.extra as { bot_user_id?: string } | null)?.bot_user_id ?? null;
+
+  const work = handleEvent(
+    client,
+    anchor.organization_id,
+    envelope,
+    bot_user_id,
+  )
+    .catch(
+      (error) => {
+        log.error(`Slack event processing failed (${envelope.event?.type})`, {
+          error: error instanceof Error ? error.message : error,
+          event_id: envelope.event_id,
+          team: envelope.team_id,
+        });
+      },
+    );
 
   // Ack now, work after the response. waitUntil exists on the deployed edge
   // runtime; fall back to inline awaiting when it doesn't (local tooling).

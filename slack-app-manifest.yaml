@@ -112,26 +112,23 @@ settings:
       - tokens_revoked
       - app_uninstalled
 
-    # Bot-token subscriptions, for a workspace-wide install. LEFT COMMENTED ON
-    # PURPOSE: turning these on starts delivering events for channels the bot
-    # is in, including ones no connected member belongs to. Those conversations
-    # get no conversations_agents row, so until something sets
-    # conversations_system.org_visible they are visible to NOBODY — the
-    # database would accumulate content no one can read. Uncomment once the
-    # org_visible writer lands.
-    #
-    # bot_events:
-    #   - message.channels
-    #   - message.groups
-    #   - message.im
-    #   - message.mpim
-    #   - reaction_added
-    #   - reaction_removed
-    #   - member_joined_channel
-    #   - member_left_channel
-    #   - channel_rename
-    #   - channel_archive
-    #   - channel_unarchive
+    # Bot-token subscriptions, for a workspace-wide install. The bot is the
+    # shared-inbox connection, so containers it is in are org-wide: the
+    # webhook clears conversations_system.private when the bot is among an
+    # event's authorizations or joins a channel, and restores it when the bot
+    # leaves. Harmless in a user-only workspace — no bot, no bot events.
+    bot_events:
+      - message.channels
+      - message.groups
+      - message.im
+      - message.mpim
+      - reaction_added
+      - reaction_removed
+      - member_joined_channel
+      - member_left_channel
+      - channel_rename
+      - channel_archive
+      - channel_unarchive
 
   # On. Rotated user tokens (xoxe.xoxp-…) expire ~12h after issue;
   # ensureFreshToken refreshes inline before use and disconnects the

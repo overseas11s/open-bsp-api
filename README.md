@@ -968,11 +968,13 @@ history readable, frozen, until reconnect.
 
 A bot install is workspace-wide and singular (one bot per app per workspace,
 reachable by every member); its token is stored on the ownerless workspace
-anchor rather than a member row, and there is no initial sync because it owns no
-personal conversations. Note that connecting a bot does not by itself ingest
-anything: that additionally needs bot events subscribed on the Slack app, and a
-visibility rule for conversations no connected member belongs to — without one
-they are visible to nobody.
+anchor rather than a member row. The bot IS the shared inbox — think of it as
+connecting a common WhatsApp number — so every container it is in is visible to
+the whole organization, private channels included: being invited is the
+sanctioning act. Connecting one enumerates what the bot is already in; after
+that the webhook keeps up, clearing the override when the bot joins a channel
+and restoring it when it leaves. Members' own DMs and channels the bot is not in
+stay private regardless.
 
 One Slack workspace maps to one organization. Token rotation (marketplace apps)
 is supported: rotated tokens refresh inline on send and via the

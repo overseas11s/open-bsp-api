@@ -61,12 +61,13 @@ export async function handleEvent(
   client: SupabaseClient,
   organization_id: string,
   envelope: SlackEnvelope,
+  bot_user_id: string | null = null,
 ): Promise<void> {
   const team = envelope.team_id!;
   const event = envelope.event;
   if (!event) return;
 
-  const ctx: Ctx = { client, organization_id, team, envelope };
+  const ctx: Ctx = { client, organization_id, team, envelope, bot_user_id };
 
   switch (event.type) {
     case "message":
@@ -104,6 +105,8 @@ type Ctx = {
   organization_id: string;
   team: string;
   envelope: SlackEnvelope;
+  /** The workspace bot's Slack user id, or null if no bot is installed. */
+  bot_user_id: string | null;
 };
 
 /** Personal address row of a linked member, or null. */
@@ -167,25 +170,37 @@ async function anyWorkspaceToken(ctx: Ctx): Promise<string | null> {
  * conversations.extra: authenticated AND anon hold UPDATE on conversations,
  * so anything visibility depends on would be member-writable there.
  *
- * `private` is not passed and not overwritten — it defaults to true, which is
- * what every Slack conversation needs while the anchor it hangs off is
- * ownerless (that anchor is the bot's, i.e. a shared inbox, so without the
- * override a member's DM would be org-wide). Only the bot path, once it
- * lands, sets it false for containers the bot is actually in.
+ * Omitting `private` leaves it at its default of true — which is what every
+ * Slack conversation needs while the anchor it hangs off is ownerless (that
+ * anchor is the bot's, i.e. a shared inbox, so without the override a
+ * member's DM would be org-wide). Pass false only where the bot is actually
+ * present: its membership is what makes a container org-wide.
  */
-async function setChannelType(
+async function setSystemFacts(
   ctx: Ctx,
   conversation_id: string,
-  channel_type?: ChannelType,
+  facts: { channel_type?: ChannelType; private?: boolean },
 ): Promise<void> {
   await ctx.client
     .from("conversations_system")
     .upsert({
       conversation_id,
       organization_id: ctx.organization_id,
-      channel_type,
+      ...facts,
     }, { onConflict: "conversation_id" })
     .throwOnError();
+}
+
+/** Whether the workspace bot is one of the installs this event applies to. */
+function botIsAuthorized(
+  ctx: Ctx,
+  authorizations: Array<{ user_id: string; is_bot?: boolean }>,
+): boolean {
+  if (!ctx.bot_user_id) return false;
+
+  return authorizations.some((a) =>
+    a.is_bot === true || a.user_id === ctx.bot_user_id
+  );
 }
 
 /**
@@ -226,7 +241,7 @@ async function ensureConversation(
     if (!known?.channel_type) {
       const resolved = channel_type ?? await resolveChannelType(ctx, channel);
 
-      await setChannelType(ctx, existing.id, resolved);
+      await setSystemFacts(ctx, existing.id, { channel_type: resolved });
     }
 
     return existing.id;
@@ -246,14 +261,19 @@ async function ensureConversation(
     .single()
     .throwOnError();
 
-  // Always write the row, even when the kind is unknown: absent means "no
-  // override", and this conversation hangs off the ownerless anchor, so
-  // absent would make it org-wide.
-  await setChannelType(ctx, created.id, resolved);
-
   const authorizations =
     (await eventAuthorizations(ctx.envelope.event_context ?? "")) ??
       ctx.envelope.authorizations ?? [];
+
+  // Always write the row, even when the kind is unknown: absent means "no
+  // override", and this conversation hangs off the ownerless anchor, so
+  // absent would make it org-wide. private is false only when the bot is one
+  // of the installs this event reached — that is what a bot-reachable
+  // container looks like on first contact.
+  await setSystemFacts(ctx, created.id, {
+    channel_type: resolved,
+    private: !botIsAuthorized(ctx, authorizations),
+  });
 
   for (const auth of authorizations) {
     if (auth.is_bot || !auth.user_id) continue;
@@ -561,6 +581,17 @@ async function onMemberJoined(
   const channel = event.channel;
   if (!event.user || !channel) return;
 
+  // The bot joining is a visibility event, not a membership one: it makes the
+  // container reachable org-wide. It gets no conversations_agents row — that
+  // table maps conversations to MEMBERS, and the bot is nobody's agent.
+  if (event.user === ctx.bot_user_id) {
+    const conversation_id = await ensureConversation(ctx, channel);
+
+    await setSystemFacts(ctx, conversation_id, { private: false });
+
+    return;
+  }
+
   const linked = await linkedAgent(ctx, event.user);
   if (!linked) return;
 
@@ -584,8 +615,11 @@ async function onMemberLeft(
   const channel = event.channel as string;
   if (!event.user || !channel) return;
 
-  const linked = await linkedAgent(ctx, event.user);
-  if (!linked) return;
+  const isBot = event.user === ctx.bot_user_id;
+
+  // Non-bot leavers must be linked members; the bot has no agent row.
+  const linked = isBot ? null : await linkedAgent(ctx, event.user);
+  if (!isBot && !linked) return;
 
   const { data: conversation } = await ctx.client
     .from("conversations")
@@ -599,11 +633,20 @@ async function onMemberLeft(
 
   if (!conversation) return;
 
+  // The bot leaving revokes org-wide reach. Existing messages stay, but from
+  // here the container is member-gated again — anyone who could only see it
+  // through the bot loses it, which is the point.
+  if (isBot) {
+    await setSystemFacts(ctx, conversation.id, { private: true });
+
+    return;
+  }
+
   await ctx.client
     .from("conversations_agents")
     .delete()
     .eq("conversation_id", conversation.id)
-    .eq("agent_id", linked.agent_id)
+    .eq("agent_id", linked!.agent_id)
     .throwOnError();
 }
 

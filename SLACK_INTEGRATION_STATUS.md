@@ -39,7 +39,14 @@ real-workspace E2E and the UI pieces.
   wrong nesting.
 - **App manifest** — `slack-app-manifest.yaml` at the repo root; scope lists
   verified identical to `USER_SCOPES`/`BOT_SCOPES`, and every subscribed event
-  has a handler (and vice versa).
+  (user and bot) has a handler, with none left over.
+- **Bot mode** — OAuth takes `mode=user|bot|both`; the bot token lives on the
+  workspace anchor and the bot is the shared-inbox connection. Bot presence
+  clears `conversations_system.private`: set at first contact from the event's
+  authorizations, on `member_joined_channel` for the bot, and for everything it
+  is already in at connect time (`syncBotConnection`); restored when it leaves.
+  Verified on the local DB — a non-member sees a private channel only while the
+  bot is in it, and never sees another member's DM.
 - **slack-management** — per-member OAuth connect (workspace anchor `T…` +
   personal `T…:U…` rows, 409 if the workspace belongs to another org), sync
   (users → contacts, channels → conversations + memberships), disconnect

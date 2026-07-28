@@ -33,7 +33,7 @@ import {
   type SlackConnection,
   SlackError,
 } from "../_shared/slack.ts";
-import { syncConnection } from "./sync.ts";
+import { syncBotConnection, syncConnection } from "./sync.ts";
 
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -269,13 +269,36 @@ app.post("/slack-management/connect", async (c) => {
     })
     .throwOnError();
 
+  // A bot install is the shared-inbox connection: enumerate what the bot is
+  // already in and clear `private` on those, so channels it was added to
+  // before this install are reachable immediately rather than waiting for the
+  // next member_joined_channel. Non-fatal — the webhook converges anyway.
+  let bot_sync = null;
+
+  if (bot_token) {
+    try {
+      bot_sync = await syncBotConnection(client, {
+        organization_id,
+        team_id: team.id,
+        token: bot_token,
+      });
+    } catch (error) {
+      log.error("Slack bot sync failed", error);
+    }
+  }
+
   // The member's personal identity + token — only when user scopes were
-  // granted. A bot-only install has no member connection and nothing to sync:
-  // its conversations arrive through the bot's own event subscriptions.
+  // granted. A bot-only install has no member connection of its own.
   if (!user_token || !authed?.id) {
     log.info("Slack bot connected", { organization_id, team_id: team.id });
 
-    return c.json({ address: null, team_id: team.id, bot: true, sync: null });
+    return c.json({
+      address: null,
+      team_id: team.id,
+      bot: true,
+      sync: null,
+      bot_sync,
+    });
   }
 
   const address = `${team.id}:${authed.id}`;
@@ -324,6 +347,7 @@ app.post("/slack-management/connect", async (c) => {
       team_id: team.id,
       bot: Boolean(bot_token),
       sync: summary,
+      bot_sync,
     });
   } catch (error) {
     log.error("Slack initial sync failed", error);
@@ -347,6 +371,7 @@ app.post("/slack-management/connect", async (c) => {
       team_id: team.id,
       bot: Boolean(bot_token),
       sync: null,
+      bot_sync,
     });
   }
 });

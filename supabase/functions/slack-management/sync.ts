@@ -232,6 +232,7 @@ async function setChannelType(
   organization_id: string,
   conversation_id: string,
   channel_type: ChannelType,
+  isPrivate?: boolean,
 ): Promise<void> {
   await client
     .from("conversations_system")
@@ -239,6 +240,64 @@ async function setChannelType(
       conversation_id,
       organization_id,
       channel_type,
+      ...(isPrivate === undefined ? {} : { private: isPrivate }),
     }, { onConflict: "conversation_id" })
     .throwOnError();
+}
+
+/**
+ * Bot-install counterpart to syncConnection. The bot is the shared-inbox
+ * connection, so everything it is in is org-wide: this enumerates the bot's
+ * own containers and clears `private` on them. Without it, a bot added to
+ * channels OpenBSP already knows about would stay invisible until someone
+ * re-invited it (member_joined_channel is the only other signal).
+ *
+ * No conversations_agents rows are written — that table maps conversations to
+ * members, and the bot is nobody's agent. Reach comes from `private = false`.
+ */
+export async function syncBotConnection(
+  client: SupabaseClient,
+  { organization_id, team_id, token }: {
+    organization_id: string;
+    team_id: string;
+    token: string;
+  },
+): Promise<{ conversations: number }> {
+  const summary = { conversations: 0 };
+  const usersById = new Map<string, SlackUser>();
+
+  for await (
+    const channels of slackPaginate(
+      "users.conversations",
+      token,
+      "channels",
+      {
+        types: "public_channel,private_channel,mpim,im",
+        exclude_archived: "true",
+      },
+    )
+  ) {
+    for (const channel of channels) {
+      const conversation_id = await ensureConversation(client, {
+        organization_id,
+        team_id,
+        channel,
+        usersById,
+      });
+
+      await setChannelType(
+        client,
+        organization_id,
+        conversation_id,
+        channelTypeFromChannel(channel),
+        false,
+      );
+
+      summary.conversations += 1;
+    }
+  }
+
+  log.info("Slack bot sync completed", { organization_id, ...summary });
+
+  return summary;
 }
