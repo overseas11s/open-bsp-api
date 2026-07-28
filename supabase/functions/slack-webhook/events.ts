@@ -320,8 +320,14 @@ async function resolveChannelType(
 }
 
 /** Makes sure an unlinked sender exists in the directory (joined after the
- * members' sync); fetches the profile lazily with any workspace token. */
-async function ensureContact(ctx: Ctx, slackUser: string): Promise<void> {
+ * members' sync); fetches the profile lazily with any workspace token.
+ * Apps (bot_id senders) are not workspace users, so users.info cannot name
+ * them — the caller passes the name off the message payload instead. */
+async function ensureContact(
+  ctx: Ctx,
+  slackUser: string,
+  opts: { name?: string; isApp?: boolean } = {},
+): Promise<void> {
   const { data } = await ctx.client
     .from("contacts_addresses")
     .select("address")
@@ -333,7 +339,7 @@ async function ensureContact(ctx: Ctx, slackUser: string): Promise<void> {
 
   if (data) return;
 
-  const token = await anyWorkspaceToken(ctx);
+  const token = opts.isApp ? null : await anyWorkspaceToken(ctx);
   const profile: SlackUser | null = token
     ? await usersInfo(token, slackUser)
     : null;
@@ -348,9 +354,11 @@ async function ensureContact(ctx: Ctx, slackUser: string): Promise<void> {
         synced: {
           action: "add",
           name: profile?.profile?.display_name ||
-            profile?.profile?.real_name || profile?.name || slackUser,
+            profile?.profile?.real_name || profile?.name || opts.name ||
+            slackUser,
         },
         team_id: ctx.team,
+        is_app: opts.isApp || undefined,
         picture: profile?.profile?.image_192,
       },
     }, { onConflict: "organization_id,service,address" })
@@ -391,15 +399,38 @@ async function onMessage(
     return;
   }
 
-  // Everything else: only plain messages, file shares and thread broadcasts.
-  // Bot chatter and system subtypes (channel_join, …) are not mirrored.
+  // Plain messages, file shares, thread broadcasts and app-authored posts.
+  // System subtypes (channel_join, channel_topic, …) are not mirrored.
   if (
-    (event.subtype && !["file_share", "thread_broadcast"].includes(
-      event.subtype,
-    )) || event.bot_id || !event.user || !event.ts
+    (event.subtype &&
+      !["file_share", "thread_broadcast", "bot_message"].includes(
+        event.subtype,
+      )) || !event.ts
   ) {
     return;
   }
+
+  // An app-authored message identifies its author with bot_id; `user` is only
+  // sometimes present (required on a generic message, optional on a
+  // bot_message). Fall back so third-party apps — CI, alerts, GitHub — are
+  // mirrored rather than dropped, which matters now that the bot sits in the
+  // channels those post to.
+  const sender = event.user ?? event.bot_id;
+  if (!sender) return;
+
+  // Our OWN bot's posts are the echo of a dispatch that already stamped
+  // external_id from the ts chat.postMessage returned. Re-ingesting would
+  // fill sender_address with the bot's id, but a bot-sent row means "the
+  // account spoke" and must keep sender null. Matched by user id, so only
+  // THIS workspace's bot is skipped — every other app comes through.
+  //
+  // Unverified against a live workspace: this assumes our own posts arrive
+  // with `user` set (true for a plain chat.postMessage with a bot token;
+  // a bot_message with username/icon overrides carries no `user`, and we
+  // send none). If one ever slips past, the damage is bounded — the
+  // external_id upsert merges it into the dispatched row rather than
+  // duplicating, and only sender_address is wrong.
+  if (ctx.bot_user_id && event.user === ctx.bot_user_id) return;
 
   const conversation_id = await ensureConversation(
     ctx,
@@ -407,8 +438,17 @@ async function onMessage(
     channelTypeFromMessageEvent(event.channel_type),
   );
 
-  const linked = await linkedAgent(ctx, event.user);
-  if (!linked) await ensureContact(ctx, event.user);
+  const linked = await linkedAgent(ctx, sender);
+  if (!linked) {
+    await ensureContact(ctx, sender, {
+      // Apps are not in the workspace directory, so users.info cannot name
+      // them; the payload carries the display name instead.
+      name: event.bot_id
+        ? (event.username ?? event.bot_profile?.name)
+        : undefined,
+      isApp: Boolean(event.bot_id),
+    });
+  }
 
   const base = {
     organization_id: ctx.organization_id,
@@ -416,7 +456,7 @@ async function onMessage(
     service: "slack" as const,
     organization_address: ctx.team,
     conversation_address: channel,
-    sender_address: event.user,
+    sender_address: sender,
     agent_id: linked?.agent_id,
     direction: "incoming" as const,
     thread_id: event.thread_ts,
@@ -539,6 +579,12 @@ async function onReaction(
   if (event.item?.type !== "message") return;
   const { channel, ts } = event.item;
   if (!channel || !ts || !event.user || !event.reaction) return;
+
+  // Our own bot's reaction is the echo of a dispatch. Unlike a message it
+  // carries no ts to stamp an external_id from, so re-ingesting it would add
+  // a duplicate row attributed to the bot — which is not a directory contact.
+  // Matched by user id, so other apps' reactions still come through.
+  if (ctx.bot_user_id && event.user === ctx.bot_user_id) return;
 
   const conversation_id = await ensureConversation(ctx, channel);
   const linked = await linkedAgent(ctx, event.user);

@@ -59,7 +59,11 @@ export type SlackMessageEvent = {
   channel: string;
   channel_type?: "channel" | "group" | "im" | "mpim";
   user?: string;
+  /** Present on app-authored messages; identifies the app, not a workspace user. */
   bot_id?: string;
+  /** Display name for a bot_message that carries no `user`. */
+  username?: string;
+  bot_profile?: { name?: string };
   text?: string;
   ts: string;
   event_ts?: string;
