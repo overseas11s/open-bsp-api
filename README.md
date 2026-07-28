@@ -924,23 +924,22 @@ Slack apps, edits, deletions, reactions, threads and files.
 
 ### Create the Slack app
 
-1. Create an app at [api.slack.com/apps](https://api.slack.com/apps) with these
-   **user token scopes** (OAuth & Permissions): `channels:history`,
-   `channels:read`, `groups:history`, `groups:read`, `im:history`, `im:read`,
-   `im:write`, `mpim:history`, `mpim:read`, `mpim:write`, `chat:write`,
-   `users:read`, `files:read`, `files:write`, `reactions:read`,
-   `reactions:write`. Declare the same list as **bot token scopes** if you want
-   to offer workspace-wide installs — scopes must be on the app before the
-   authorize URL can request them, and marketplace review audits everything
-   declared, whether or not a given install requests it.
-2. Add your UI's OAuth callback as a **redirect URL**.
-3. Enable **Event Subscriptions** pointing at
-   `https://<project>.supabase.co/functions/v1/slack-webhook` and subscribe to
-   these **user events**: `message.im`, `message.mpim`, `message.groups`,
-   `message.channels`, `reaction_added`, `reaction_removed`,
-   `member_joined_channel`, `member_left_channel`, `channel_rename`,
-   `channel_archive`, `channel_unarchive`, `user_change`, `tokens_revoked`,
-   `app_uninstalled`.
+The app's configuration is version-controlled in
+[`slack-app-manifest.yaml`](./slack-app-manifest.yaml) — scopes, event
+subscriptions and settings, with the reasoning inline. It is the source of
+truth; the steps below say what to do with it.
+
+1. Create an app at [api.slack.com/apps](https://api.slack.com/apps) with **From
+   an app manifest**, and paste `slack-app-manifest.yaml` after replacing the
+   `<ui-host>` and `<project-ref>` placeholders. The manifest declares both user
+   and bot scopes; a `mode=user` install still requests only the user ones (see
+   "Connecting members"). Bot event subscriptions are commented out on purpose —
+   read the note above them before enabling.
+2. Check the OAuth **redirect URL** matches your UI's callback, and that **Event
+   Subscriptions** verified your `slack-webhook` URL (Slack pings it with a
+   `url_verification` challenge, which the function answers).
+3. Keep the scope lists in sync with `USER_SCOPES` / `BOT_SCOPES` in
+   `supabase/functions/_shared/slack.ts` whenever either changes.
 4. Set the edge function secrets:
 
    ```bash

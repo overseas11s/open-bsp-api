@@ -1,0 +1,149 @@
+# Slack app manifest for OpenBSP.
+#
+# Source of truth for what lives at api.slack.com/apps, kept here so the app
+# config is reviewable and reproducible instead of existing only in a
+# dashboard. Apply it under Settings → App Manifest, or via
+# apps.manifest.update with an app configuration token.
+#
+# Placeholders to replace before applying:
+#   <ui-host>      the host serving your OpenBSP UI (OAuth callback)
+#   <project-ref>  your Supabase project ref
+#
+# NOTE: this file has not been run through Slack's manifest validator
+# (apps.manifest.validate needs an app configuration token). Two details were
+# not resolvable from the published reference and follow the configuration the
+# README documents as working today — see the comments on user_events.
+_metadata:
+  major_version: 2
+  minor_version: 1
+
+display_information:
+  name: OpenBSP
+  description: Mirror your Slack conversations into OpenBSP.
+  long_description: |
+    OpenBSP mirrors each member's own Slack conversations — their DMs, group
+    DMs and channels — into a shared workspace, preserving privacy: a Slack
+    conversation is visible only to the members who are in it on Slack. The
+    app acts as the member, so messages sent from OpenBSP post genuinely as
+    them, and edits, deletions, reactions, threads and files all flow through.
+  background_color: "#1a1d21"
+
+features:
+  # Required in order to declare bot scopes at all. Declaring a bot user does
+  # NOT force one onto every install: the bot token is issued only when the
+  # authorize URL requests `scope` (buildAuthorizeUrl mode "bot" or "both").
+  # A mode=user install remains user-token-only.
+  bot_user:
+    display_name: openbsp
+    always_online: false
+
+oauth_config:
+  redirect_urls:
+    - https://<ui-host>/slack/callback
+
+  scopes:
+    # Mirrors USER_SCOPES in supabase/functions/_shared/slack.ts. Keep the two
+    # in sync: Slack rejects a token whose grant is narrower than a call needs,
+    # and marketplace review audits every entry declared here.
+    user:
+      - channels:history
+      - channels:read
+      - groups:history
+      - groups:read
+      - im:history
+      - im:read
+      - im:write
+      - mpim:history
+      - mpim:read
+      - mpim:write
+      - chat:write
+      - users:read
+      - files:read
+      - files:write
+      - reactions:read
+      - reactions:write
+
+    # Mirrors BOT_SCOPES. Declared so a workspace-wide install is possible;
+    # unused until someone picks mode=bot or mode=both. Review audits these
+    # whether or not any install requests them.
+    bot:
+      - channels:history
+      - channels:read
+      - groups:history
+      - groups:read
+      - im:history
+      - im:read
+      - im:write
+      - mpim:history
+      - mpim:read
+      - mpim:write
+      - chat:write
+      - users:read
+      - files:read
+      - files:write
+      - reactions:read
+      - reactions:write
+
+settings:
+  event_subscriptions:
+    request_url: https://<project-ref>.supabase.co/functions/v1/slack-webhook
+
+    # Delivered against each connected member's user token — the per-member
+    # mirror, which is the whole product today.
+    #
+    # tokens_revoked and app_uninstalled are app-level rather than per-surface;
+    # the published reference does not say which list they belong in, and the
+    # app has always run without a bot user, so they are here because that is
+    # the configuration the README records as working. If Slack's validator
+    # rejects them here, move them to bot_events.
+    user_events:
+      - message.im
+      - message.mpim
+      - message.groups
+      - message.channels
+      - reaction_added
+      - reaction_removed
+      - member_joined_channel
+      - member_left_channel
+      - channel_rename
+      - channel_archive
+      - channel_unarchive
+      - user_change
+      - tokens_revoked
+      - app_uninstalled
+
+    # Bot-token subscriptions, for a workspace-wide install. LEFT COMMENTED ON
+    # PURPOSE: turning these on starts delivering events for channels the bot
+    # is in, including ones no connected member belongs to. Those conversations
+    # get no conversations_agents row, so until something sets
+    # conversations_system.org_visible they are visible to NOBODY — the
+    # database would accumulate content no one can read. Uncomment once the
+    # org_visible writer lands.
+    #
+    # bot_events:
+    #   - message.channels
+    #   - message.groups
+    #   - message.im
+    #   - message.mpim
+    #   - reaction_added
+    #   - reaction_removed
+    #   - member_joined_channel
+    #   - member_left_channel
+    #   - channel_rename
+    #   - channel_archive
+    #   - channel_unarchive
+
+  # Off today: connections are non-expiring, and the refresh-slack-tokens cron
+  # is a deliberate no-op until this flips. The code already handles rotation
+  # (ensureFreshToken refreshes inline and disconnects on a dead refresh
+  # token), so enabling it is a config change, not a code change. Marketplace
+  # distribution requires it.
+  token_rotation_enabled: false
+
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+
+  # No slash commands, shortcuts or Block Kit actions — OpenBSP reads and
+  # writes through the Web API, it does not present UI inside Slack.
+  interactivity:
+    is_enabled: false

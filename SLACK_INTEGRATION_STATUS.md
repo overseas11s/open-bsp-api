@@ -15,12 +15,28 @@ real-workspace E2E and the UI pieces.
   sendable-kind whitelist + no `content.tool`. Internal rows get pending
   stripped on insert AND update (merge-trigger-proof). The Slack echo fills
   sender fill-once (null → member's U…); non-null senders are immutable.
-- **Visibility & RLS** — `is_conversation_visible`: org-wide only for
-  customer-facing services; slack/discord/teams are members-only via
-  `conversations_agents`; owner branch for personal addresses.
-  `is_media_visible` on storage downloads (v1 file parts only). Owners/admins
-  cannot read members' conversations; API keys see shared-account content only.
-  Explicit grants for the new table (default privileges don't cover it).
+- **Visibility & RLS** — org-wide only for customer-facing services;
+  slack/discord/teams are members-only via `conversations_agents`; owner branch
+  for personal addresses. Policies use set-returning helpers
+  (`get_visible_addresses` / `get_visible_conversations`) so the checks become
+  hashed SubPlans instead of a per-row SECURITY DEFINER call;
+  `is_conversation_visible` remains as the boolean form over the same helpers,
+  for `is_media_visible`. Owners/admins cannot read members' conversations; API
+  keys see shared-account content only. Explicit grants for the new tables
+  (default privileges don't cover them).
+- **`conversations_system`** — service-role-only home for facts members must not
+  rewrite (`channel_type`, `org_visible`). `conversations.extra` cannot hold
+  them: `authenticated` AND `anon` both have UPDATE on conversations. Verified
+  against the local DB — insert/update/delete all denied to `authenticated`,
+  select allowed. Sets the `<table>_system` pattern.
+- **Official Slack types** — `@slack/web-api` + `@slack/types` imported
+  `import type` (erased; zero runtime). `slackApi` indexed by method, events a
+  discriminated union. Caught two real bugs: `member_joined_channel`'s `C`/`G`
+  was recorded as `public_channel`, and reactions read `channel_type` at the
+  wrong nesting.
+- **App manifest** — `slack-app-manifest.yaml` at the repo root; scope lists
+  verified identical to `USER_SCOPES`/`BOT_SCOPES`, and every subscribed event
+  has a handler (and vice versa).
 - **slack-management** — per-member OAuth connect (workspace anchor `T…` +
   personal `T…:U…` rows, 409 if the workspace belongs to another org), sync
   (users → contacts, channels → conversations + memberships), disconnect
@@ -69,7 +85,9 @@ fails.
 1. **Real-workspace E2E** — needs the dev Slack app created (rotation on) and
    secrets set: `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`,
    `SLACK_SIGNING_SECRET`, `SLACK_APP_TOKEN` (app-level, for
-   `apps.event.authorizations.list`). App manifest can be generated on demand.
+   `apps.event.authorizations.list`). Create it from `slack-app-manifest.yaml`;
+   that file has never been through Slack's validator, so the first apply is
+   also its test.
 2. **UI (open-bsp-ui)** — thread panel (`messages.thread_id` has no UI); hide
    unechoed Slack sends (sender null until the echo — other members would
    briefly see them as their own); `conversations_agents` realtime subscription;
@@ -78,7 +96,14 @@ fails.
    migrating readers (agent-client/protocols/MCP/UI/n8n) to `content.tool`;
    remove the compat derivation in `before_insert_on_messages`; drop direction
    from wire contracts.
-4. **TODO.md reviews** — API keys vs user-scoped content, multi-table webhooks,
+4. **Bot mode ingestion** — OAuth accepts `mode=user|bot|both` and a bot token
+   is stored on the workspace anchor, but nothing writes
+   `conversations_system.org_visible` yet, and `bot_events` are commented out in
+   the manifest for that reason: enabling them before the writer exists would
+   ingest conversations with no `conversations_agents` row, visible to nobody.
+   Decision already taken — bot presence makes a container org-visible
+   regardless of whether it is private.
+5. **TODO.md reviews** — API keys vs user-scoped content, multi-table webhooks,
    re-sync media-uri safety, user-scoped WhatsApp/Instagram connections.
 
 ## Known acceptable gaps
