@@ -120,23 +120,10 @@ CREATE TRIGGER pause_conversation_on_human_message AFTER INSERT ON public.messag
 
 
 
--- Backfill (hand-written DML): sender_address becomes a contact reference or
--- null. Account-authored rows (the phase A backfill had set sender =
--- organization_address) go back to null; incoming rows already carry the
--- contact. Stale pending on internal rows is stripped so no retry sweep can
--- ever arm them. User triggers disabled: no per-row webhooks / updated_at
--- rewrites.
-
-alter table public.messages disable trigger user;
-
-update public.messages
-set sender_address = null
-where direction = 'outgoing'::public.direction
-  and sender_address is not null;
-
-update public.messages
-set status = status - 'pending'
-where direction = 'internal'::public.direction
-  and status ? 'pending';
-
-alter table public.messages enable trigger user;
+-- No backfill here on purpose. This migration only changes the semantics of
+-- sender_address (contact reference or null) and the pending arm bit on
+-- internal rows; both are already written that way by the single backfill
+-- pass in 20260725154649_unified_addressing_and_visibility.sql, which ships
+-- in the same deploy. Correcting those ~135k rows in a second pass would
+-- rewrite them across all six indexes of a 360 MB table for no change in
+-- outcome.

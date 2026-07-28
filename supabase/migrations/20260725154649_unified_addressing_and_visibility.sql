@@ -354,9 +354,14 @@ CREATE TRIGGER pause_conversation_on_human_message AFTER INSERT ON public.messag
 
 -- Backfill. Derivation on existing rows:
 --   conversation_address = coalesce(group_address, contact_address)
---   sender_address       = organization_address for outgoing,
---                          contact_address for incoming,
---                          null for internal
+--   sender_address       = contact_address for incoming, null otherwise
+--                          (a contact reference or null — see the later
+--                          sender_address_rethink migration for the rationale)
+--   status               = pending stripped from internal rows
+-- Single pass, final semantics: messages is ~450k rows / 360 MB with six
+-- indexes, so every extra pass is another full set of row versions plus WAL.
+-- Writing an intermediate sender_address here and correcting it in a second
+-- migration would rewrite the outgoing rows for nothing.
 -- User triggers are disabled during the backfill: without this,
 -- z_notify_webhook_* would enqueue one pg_net HTTP post per historic row and
 -- set_updated_at would rewrite updated_at (breaking sync ordering). ALTER
@@ -374,10 +379,12 @@ where conversation_address is null
 update public.messages
 set
   conversation_address = coalesce(group_address, contact_address),
-  sender_address = case direction
-    when 'outgoing'::public.direction then organization_address
-    when 'incoming'::public.direction then contact_address
-    else null -- internal
+  sender_address = case
+    when direction = 'incoming'::public.direction then contact_address
+  end, -- outgoing (the account spoke) and internal stay null
+  status = case
+    when direction = 'internal'::public.direction then status - 'pending'
+    else status
   end
 where conversation_address is null
   and direction is not null;
