@@ -221,6 +221,11 @@ async function ensureConversation(
  * visibility depends on must sit in a table only the service role can write.
  * Here the value is always authoritative — users.conversations returns
  * is_im/is_mpim/is_private — so it overwrites rather than backfills.
+ *
+ * The row must exist even when nothing else needs recording: `private`
+ * defaults to true, and without the row the conversation inherits the
+ * ownerless workspace anchor and would be visible org-wide. `private` is
+ * never passed here, so a re-sync cannot undo the bot path's decision.
  */
 async function setChannelType(
   client: SupabaseClient,

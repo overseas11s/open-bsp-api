@@ -876,8 +876,8 @@ export type Database = {
           conversation_id: string
           created_at: string
           extra: Json | null
-          org_visible: boolean
           organization_id: string
+          private: boolean
           updated_at: string
         }
         Insert: {
@@ -885,8 +885,8 @@ export type Database = {
           conversation_id: string
           created_at?: string
           extra?: Json | null
-          org_visible?: boolean
           organization_id: string
+          private?: boolean
           updated_at?: string
         }
         Update: {
@@ -894,8 +894,8 @@ export type Database = {
           conversation_id?: string
           created_at?: string
           extra?: Json | null
-          org_visible?: boolean
           organization_id?: string
+          private?: boolean
           updated_at?: string
         }
         Relationships: [
@@ -1272,6 +1272,8 @@ export type Database = {
         Args: { role?: Database["public"]["Enums"]["role"] }
         Returns: string[]
       }
+      get_participant_conversations: { Args: never; Returns: string[] }
+      get_private_conversations: { Args: never; Returns: string[] }
       get_visible_addresses: {
         Args: never
         Returns: {
@@ -1279,7 +1281,6 @@ export type Database = {
           organization_id: string
         }[]
       }
-      get_visible_conversations: { Args: never; Returns: string[] }
       init_data: {
         Args: {
           p_limit?: number

@@ -15,20 +15,23 @@ real-workspace E2E and the UI pieces.
   sendable-kind whitelist + no `content.tool`. Internal rows get pending
   stripped on insert AND update (merge-trigger-proof). The Slack echo fills
   sender fill-once (null → member's U…); non-null senders are immutable.
-- **Visibility & RLS** — org-wide only for customer-facing services;
-  slack/discord/teams are members-only via `conversations_agents`; owner branch
-  for personal addresses. Policies use set-returning helpers
-  (`get_visible_addresses` / `get_visible_conversations`) so the checks become
-  hashed SubPlans instead of a per-row SECURITY DEFINER call;
+- **Visibility & RLS** — the account rule decides (ownerless address = shared
+  inbox = org-wide; owned = personal), and `conversations_system.private`
+  overrides it per conversation. No service is named in the policies any more:
+  Slack's ownerless anchor holds the bot (the shared-inbox connection), so
+  members' DMs under that same anchor stay private via the override. Policies
+  use set-returning helpers (`get_visible_addresses` /
+  `get_participant_conversations` / `get_private_conversations`) so the checks
+  become hashed SubPlans instead of a per-row SECURITY DEFINER call;
   `is_conversation_visible` remains as the boolean form over the same helpers,
   for `is_media_visible`. Owners/admins cannot read members' conversations; API
   keys see shared-account content only. Explicit grants for the new tables
   (default privileges don't cover them).
 - **`conversations_system`** — service-role-only home for facts members must not
-  rewrite (`channel_type`, `org_visible`). `conversations.extra` cannot hold
-  them: `authenticated` AND `anon` both have UPDATE on conversations. Verified
-  against the local DB — insert/update/delete all denied to `authenticated`,
-  select allowed. Sets the `<table>_system` pattern.
+  rewrite (`channel_type`, `private`). `conversations.extra` cannot hold them:
+  `authenticated` AND `anon` both have UPDATE on conversations. Verified against
+  the local DB — insert/update/delete all denied to `authenticated`, select
+  allowed. Sets the `<table>_system` pattern.
 - **Official Slack types** — `@slack/web-api` + `@slack/types` imported
   `import type` (erased; zero runtime). `slackApi` indexed by method, events a
   discriminated union. Caught two real bugs: `member_joined_channel`'s `C`/`G`
@@ -98,10 +101,10 @@ fails.
    from wire contracts.
 4. **Bot mode ingestion** — OAuth accepts `mode=user|bot|both` and a bot token
    is stored on the workspace anchor, but nothing writes
-   `conversations_system.org_visible` yet, and `bot_events` are commented out in
-   the manifest for that reason: enabling them before the writer exists would
-   ingest conversations with no `conversations_agents` row, visible to nobody.
-   Decision already taken — bot presence makes a container org-visible
+   `conversations_system.private = false` yet, and `bot_events` are commented
+   out in the manifest for that reason: enabling them before the writer exists
+   would ingest conversations with no `conversations_agents` row, visible to
+   nobody. Decision already taken — bot presence makes a container org-visible
    regardless of whether it is private.
 5. **TODO.md reviews** — API keys vs user-scoped content, multi-table webhooks,
    re-sync media-uri safety, user-scoped WhatsApp/Instagram connections.

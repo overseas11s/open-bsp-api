@@ -1,14 +1,12 @@
 alter table public.conversations enable row level security;
 
--- Intra-org conversations (slack) are visible to their MEMBERS only, by
--- default even public channels: OpenBSP is not a place to discover and join
--- channels, it mirrors what each member is already in. The one way out is
--- conversations_system.org_visible, which get_visible_conversations() folds
--- in — set by the system for containers the workspace bot is in, and
--- unsettable by members because that table grants them no write. Do NOT
--- reintroduce this as a flag on conversations.extra: authenticated AND anon
--- hold UPDATE there, so any caller who can see a conversation could publish
--- it to the whole org.
+-- The account rule decides unless the conversation overrides it: see
+-- 04-02_visibility_helpers.sql. conversations_system.private is what a Slack
+-- member's DM uses to stay private even though the workspace anchor it hangs
+-- off is ownerless (that anchor holds the bot, i.e. the shared inbox). Do NOT
+-- reintroduce that flag on conversations.extra: authenticated AND anon hold
+-- UPDATE there, so any caller who can see a conversation could publish it to
+-- the whole org.
 create policy "members can manage their orgs conversations"
 on public.conversations
 for all
@@ -17,13 +15,16 @@ using (
   organization_id in (
     select public.get_authorized_orgs('member')
   )
-  -- Set membership, not a per-row function call: both subqueries are
-  -- InitPlans (evaluated once, then hash-probed per row). See
-  -- 04-02_visibility_helpers.sql.
+  -- Account rule, minus conversations whose override says private; or
+  -- participation. All three subqueries are InitPlans (evaluated once, then
+  -- hash-probed per row). See 04-02_visibility_helpers.sql.
   and (
-    (organization_id, organization_address) in (
-      select v.organization_id, v.address from public.get_visible_addresses() v
+    (
+      (organization_id, organization_address) in (
+        select v.organization_id, v.address from public.get_visible_addresses() v
+      )
+      and id not in (select public.get_private_conversations())
     )
-    or id in (select public.get_visible_conversations())
+    or id in (select public.get_participant_conversations())
   )
 );

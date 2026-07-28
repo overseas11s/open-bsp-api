@@ -9,7 +9,7 @@ drop policy "members can read their orgs messages" on "public"."messages";
     "conversation_id" uuid not null,
     "organization_id" uuid not null,
     "channel_type" text,
-    "org_visible" boolean not null default false,
+    "private" boolean not null default true,
     "extra" jsonb,
     "created_at" timestamp with time zone not null default now(),
     "updated_at" timestamp with time zone not null default now()
@@ -18,9 +18,9 @@ drop policy "members can read their orgs messages" on "public"."messages";
 
 alter table "public"."conversations_system" enable row level security;
 
-CREATE INDEX conversations_system_org_visible_idx ON public.conversations_system USING btree (organization_id) WHERE org_visible;
-
 CREATE UNIQUE INDEX conversations_system_pkey ON public.conversations_system USING btree (conversation_id);
+
+CREATE INDEX conversations_system_private_idx ON public.conversations_system USING btree (organization_id) WHERE private;
 
 alter table "public"."conversations_system" add constraint "conversations_system_pkey" PRIMARY KEY using index "conversations_system_pkey";
 
@@ -38,51 +38,51 @@ alter table "public"."conversations_system" validate constraint "conversations_s
 
 set check_function_bodies = off;
 
+CREATE OR REPLACE FUNCTION public.get_participant_conversations()
+ RETURNS SETOF uuid
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+  select ca.conversation_id
+  from public.conversations_agents ca
+  join public.agents a on a.id = ca.agent_id
+  where a.user_id = auth.uid();
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.get_private_conversations()
+ RETURNS SETOF uuid
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+  select cs.conversation_id
+  from public.conversations_system cs
+  where cs.private
+    and cs.organization_id in (select public.get_authorized_orgs('member'));
+$function$
+;
+
 CREATE OR REPLACE FUNCTION public.get_visible_addresses()
  RETURNS TABLE(organization_id uuid, address text)
  LANGUAGE sql
  STABLE SECURITY DEFINER
  SET search_path TO ''
 AS $function$
-  -- Shared inboxes: ownerless accounts on customer-facing services. No
-  -- auth.uid() involved — "is the caller in this org" lives in the policy —
-  -- so this is the only rule an API key can satisfy.
+  -- Shared inboxes: any ownerless account. No auth.uid() involved — "is the
+  -- caller in this org" lives in the policy — so this is the only rule an
+  -- API key can satisfy.
   select oa.organization_id, oa.address
   from public.organizations_addresses oa
   where oa.agent_id is null
-    and oa.service not in ('slack', 'discord', 'teams')
   union
-  -- Personal accounts owned by the caller (a personal WhatsApp/mailbox).
-  -- Slack does not use this rule: its conversations anchor to the workspace,
-  -- not to the member's T…:U… row, so they rely on participation instead.
+  -- Personal accounts owned by the caller (their Slack identity, a personal
+  -- WhatsApp/mailbox).
   select oa.organization_id, oa.address
   from public.organizations_addresses oa
   join public.agents a on a.id = oa.agent_id
   where a.user_id = auth.uid();
-$function$
-;
-
-CREATE OR REPLACE FUNCTION public.get_visible_conversations()
- RETURNS SETOF uuid
- LANGUAGE sql
- STABLE SECURITY DEFINER
- SET search_path TO ''
-AS $function$
-  -- Participation: a conversations_agents row names an agent that is the
-  -- caller. The Slack path, mirroring channel/DM membership.
-  select ca.conversation_id
-  from public.conversations_agents ca
-  join public.agents a on a.id = ca.agent_id
-  where a.user_id = auth.uid()
-  union
-  -- Org-wide by system decision (e.g. a container the workspace bot is in).
-  -- Restricted to the caller's orgs so the set stays small; the policy
-  -- checks org membership again anyway. Members cannot set this flag —
-  -- conversations_system grants them no write.
-  select cs.conversation_id
-  from public.conversations_system cs
-  where cs.org_visible
-    and cs.organization_id in (select public.get_authorized_orgs('member'));
 $function$
 ;
 
@@ -93,10 +93,13 @@ CREATE OR REPLACE FUNCTION public.is_conversation_visible(conv_id uuid, conv_org
  SET search_path TO ''
 AS $function$
   select
-    (conv_org, conv_addr) in (
-      select v.organization_id, v.address from public.get_visible_addresses() v
+    (
+      (conv_org, conv_addr) in (
+        select v.organization_id, v.address from public.get_visible_addresses() v
+      )
+      and conv_id not in (select public.get_private_conversations())
     )
-    or conv_id in (select public.get_visible_conversations());
+    or conv_id in (select public.get_participant_conversations());
 $function$
 ;
 
@@ -147,9 +150,9 @@ using ((EXISTS ( SELECT 1
   as permissive
   for all
   to authenticated, anon
-using (((organization_id IN ( SELECT public.get_authorized_orgs('member'::public.role) AS get_authorized_orgs)) AND (((organization_id, organization_address) IN ( SELECT v.organization_id,
+using (((organization_id IN ( SELECT public.get_authorized_orgs('member'::public.role) AS get_authorized_orgs)) AND ((((organization_id, organization_address) IN ( SELECT v.organization_id,
     v.address
-   FROM public.get_visible_addresses() v(organization_id, address))) OR (id IN ( SELECT public.get_visible_conversations() AS get_visible_conversations)))));
+   FROM public.get_visible_addresses() v(organization_id, address))) AND (NOT (id IN ( SELECT public.get_private_conversations() AS get_private_conversations)))) OR (id IN ( SELECT public.get_participant_conversations() AS get_participant_conversations)))));
 
 
 
@@ -158,9 +161,9 @@ using (((organization_id IN ( SELECT public.get_authorized_orgs('member'::public
   as permissive
   for insert
   to authenticated, anon
-with check (((organization_id IN ( SELECT public.get_authorized_orgs('member'::public.role) AS get_authorized_orgs)) AND (((organization_id, organization_address) IN ( SELECT v.organization_id,
+with check (((organization_id IN ( SELECT public.get_authorized_orgs('member'::public.role) AS get_authorized_orgs)) AND ((((organization_id, organization_address) IN ( SELECT v.organization_id,
     v.address
-   FROM public.get_visible_addresses() v(organization_id, address))) OR (conversation_id IN ( SELECT public.get_visible_conversations() AS get_visible_conversations)))));
+   FROM public.get_visible_addresses() v(organization_id, address))) AND (NOT (conversation_id IN ( SELECT public.get_private_conversations() AS get_private_conversations)))) OR (conversation_id IN ( SELECT public.get_participant_conversations() AS get_participant_conversations)))));
 
 
 
@@ -169,9 +172,9 @@ with check (((organization_id IN ( SELECT public.get_authorized_orgs('member'::p
   as permissive
   for select
   to authenticated, anon
-using (((organization_id IN ( SELECT public.get_authorized_orgs('member'::public.role) AS get_authorized_orgs)) AND (((organization_id, organization_address) IN ( SELECT v.organization_id,
+using (((organization_id IN ( SELECT public.get_authorized_orgs('member'::public.role) AS get_authorized_orgs)) AND ((((organization_id, organization_address) IN ( SELECT v.organization_id,
     v.address
-   FROM public.get_visible_addresses() v(organization_id, address))) OR (conversation_id IN ( SELECT public.get_visible_conversations() AS get_visible_conversations)))));
+   FROM public.get_visible_addresses() v(organization_id, address))) AND (NOT (conversation_id IN ( SELECT public.get_private_conversations() AS get_private_conversations)))) OR (conversation_id IN ( SELECT public.get_participant_conversations() AS get_participant_conversations)))));
 
 
 CREATE TRIGGER set_extra BEFORE UPDATE ON public.conversations_system FOR EACH ROW WHEN ((new.extra IS NOT NULL)) EXECUTE FUNCTION public.merge_update('extra');

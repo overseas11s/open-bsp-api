@@ -1,35 +1,42 @@
--- Who sees a conversation follows from the service's communication category
--- plus account ownership — no per-row visibility state:
+-- Who sees a conversation: the ACCOUNT rule decides by default, and a
+-- conversation may override it.
 --
---   * customer-facing services (whatsapp, instagram, …): an ownerless
---     account is the org's shared inbox — visible org-wide. An owned
---     account is personal — owner only.
---   * intra-org services (slack; later discord/teams): nothing is ever
---     org-wide by default. The ownerless workspace anchor's conversations
---     are visible to the agents listed in conversations_agents, mirroring
---     membership on the external service. The exception is an explicit
---     conversations_system.org_visible flag (containers the workspace bot is
---     in), which lives in a service-role-only table precisely so a member
---     cannot set it.
+--   Account (organizations_addresses.agent_id):
+--     null => public — a shared inbox, visible to the whole org
+--     set  => private — a personal account, visible to its owner
+--
+--   Override (conversations_system.private, default true):
+--     absent or false => the account rule stands
+--     true            => account rule suppressed; only conversations_agents
+--                        members see it
+--
+-- The override exists because one ownerless account can host both modes.
+-- Slack is the case: the workspace anchor is ownerless and holds the bot —
+-- the shared-inbox connection, exactly like a common WhatsApp number — while
+-- each member's T…:U… row is personal. Every conversation hangs off the
+-- anchor regardless of which one it arrived through, so "is this shared?" is
+-- a fact about the conversation, not the account. A channel the bot is in is
+-- public; a member's DM is not.
+--
+-- No service is named anywhere below. An ingestor declares what it wants by
+-- writing (or not writing) the override; adding discord/teams/email needs no
+-- change here.
 --
 -- There is deliberately NO role bypass: owners/admins cannot read a member's
 -- personal conversations. API keys authenticate without auth.uid(), so they
--- only ever see org-wide content (org-scoped keys don't pierce member
--- privacy either).
+-- only ever see shared-inbox content.
 --
--- SHAPE: these return SETS, not booleans, and take no per-row arguments. The
--- policies call them as `x in (select …)`, which the planner evaluates once
--- per query as an InitPlan and then probes per row — the same trick that
--- makes get_authorized_orgs cheap. A boolean helper taking the row's columns
--- cannot get that treatment: it is re-invoked per row, and being SECURITY
--- DEFINER it cannot be inlined either, so each call is a real function call
--- with correlated subqueries inside. Both sets are small (bounded by
--- organizations_addresses, and by the caller's own memberships).
+-- SHAPE: these return SETS and take no per-row arguments, so the policies can
+-- call them as `x in (select …)` — an InitPlan evaluated once per query and
+-- then hash-probed per row, the same trick that makes get_authorized_orgs
+-- cheap. A boolean helper taking the row's columns cannot get that treatment:
+-- it is re-invoked per row, and being SECURITY DEFINER it cannot be inlined
+-- either.
 
 -- Accounts whose conversations the caller can see, as (organization_id,
--- address) pairs. Folds the two address-based rules: the org's shared
--- inboxes, and personal accounts the caller owns. The service guard keeps
--- the ownerless Slack workspace anchor out of the shared-inbox rule.
+-- address) pairs: the org's shared inboxes, plus personal accounts the
+-- caller owns. Conversations under these are visible unless their override
+-- says private.
 create function public.get_visible_addresses()
 returns table (organization_id uuid, address text)
 language sql
@@ -37,46 +44,50 @@ stable
 security definer
 set search_path to ''
 as $$
-  -- Shared inboxes: ownerless accounts on customer-facing services. No
-  -- auth.uid() involved — "is the caller in this org" lives in the policy —
-  -- so this is the only rule an API key can satisfy.
+  -- Shared inboxes: any ownerless account. No auth.uid() involved — "is the
+  -- caller in this org" lives in the policy — so this is the only rule an
+  -- API key can satisfy.
   select oa.organization_id, oa.address
   from public.organizations_addresses oa
   where oa.agent_id is null
-    and oa.service not in ('slack', 'discord', 'teams')
   union
-  -- Personal accounts owned by the caller (a personal WhatsApp/mailbox).
-  -- Slack does not use this rule: its conversations anchor to the workspace,
-  -- not to the member's T…:U… row, so they rely on participation instead.
+  -- Personal accounts owned by the caller (their Slack identity, a personal
+  -- WhatsApp/mailbox).
   select oa.organization_id, oa.address
   from public.organizations_addresses oa
   join public.agents a on a.id = oa.agent_id
   where a.user_id = auth.uid();
 $$;
 
--- Conversations the caller can see irrespective of which account they hang
--- off: ones they participate in, plus ones flagged org-wide by the system.
-create function public.get_visible_conversations()
+-- Conversations the caller participates in: a conversations_agents row names
+-- an agent that is the caller. Mirrors channel/DM membership on the external
+-- service, and is the only way into a conversation marked private.
+create function public.get_participant_conversations()
 returns setof uuid
 language sql
 stable
 security definer
 set search_path to ''
 as $$
-  -- Participation: a conversations_agents row names an agent that is the
-  -- caller. The Slack path, mirroring channel/DM membership.
   select ca.conversation_id
   from public.conversations_agents ca
   join public.agents a on a.id = ca.agent_id
-  where a.user_id = auth.uid()
-  union
-  -- Org-wide by system decision (e.g. a container the workspace bot is in).
-  -- Restricted to the caller's orgs so the set stays small; the policy
-  -- checks org membership again anyway. Members cannot set this flag —
-  -- conversations_system grants them no write.
+  where a.user_id = auth.uid();
+$$;
+
+-- Conversations whose override suppresses the account rule. Scoped to the
+-- caller's orgs so the set stays bounded. Members cannot influence it —
+-- conversations_system grants them no write.
+create function public.get_private_conversations()
+returns setof uuid
+language sql
+stable
+security definer
+set search_path to ''
+as $$
   select cs.conversation_id
   from public.conversations_system cs
-  where cs.org_visible
+  where cs.private
     and cs.organization_id in (select public.get_authorized_orgs('member'));
 $$;
 
@@ -96,10 +107,13 @@ security definer
 set search_path to ''
 as $$
   select
-    (conv_org, conv_addr) in (
-      select v.organization_id, v.address from public.get_visible_addresses() v
+    (
+      (conv_org, conv_addr) in (
+        select v.organization_id, v.address from public.get_visible_addresses() v
+      )
+      and conv_id not in (select public.get_private_conversations())
     )
-    or conv_id in (select public.get_visible_conversations());
+    or conv_id in (select public.get_participant_conversations());
 $$;
 
 -- Whether the caller may download a media object (storage path

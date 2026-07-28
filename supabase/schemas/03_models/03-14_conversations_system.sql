@@ -23,11 +23,23 @@ create table public.conversations_system (
   -- is_private), never from an event payload's own vocabulary — those differ
   -- per event type and are ambiguous (see _shared/slack_events.ts).
   channel_type text,
-  -- Visible to every member of the organization, regardless of who
-  -- participates. Set for containers the workspace bot is in; the bot's
-  -- presence is the sanctioning act. Default false: a conversation is never
-  -- org-wide unless something deliberately says so.
-  org_visible boolean not null default false,
+  -- Per-conversation override of the account's default visibility.
+  --
+  -- The account rule is unchanged and still decides on its own when no row
+  -- exists here: organizations_addresses.agent_id null => public (a shared
+  -- inbox), set => private (a personal account). Slack needs the override
+  -- because ONE ownerless account hosts both modes: the workspace anchor
+  -- holds the bot — the shared-inbox connection, like a common WhatsApp
+  -- number — while members' T…:U… rows are personal, and every conversation
+  -- hangs off the anchor either way.
+  --
+  -- true  => suppress the account rule; only conversations_agents members see
+  --          it. This is the default, so a row written for any other reason
+  --          (channel_type) is member-gated, never accidentally public.
+  -- false => defer to the account rule, i.e. public under a shared inbox.
+  --          Set for containers the bot is in: the bot being there is what
+  --          makes the conversation org-wide.
+  private boolean not null default true,
   -- System-controlled counterpart to conversations.extra.
   extra jsonb,
   created_at timestamp with time zone default now() not null,
@@ -65,11 +77,11 @@ grant select, insert, update, delete on table public.conversations_system to ser
 grant select on table public.conversations_system to authenticated;
 grant select on table public.conversations_system to anon;
 
--- Drives the org-wide visibility branch of get_visible_conversations().
-create index conversations_system_org_visible_idx
+-- Drives get_private_conversations().
+create index conversations_system_private_idx
 on public.conversations_system
 using btree (organization_id)
-where org_visible;
+where private;
 
 create trigger set_extra
 before update

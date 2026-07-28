@@ -81,11 +81,12 @@ Monetization (medium-term)
       transaction.
 
 - [x] RLS: per-row `is_conversation_visible()` replaced by InitPlan sets
-      (`get_visible_addresses` / `get_visible_conversations`) — plans now show
-      hashed SubPlans instead of a per-row function call. Added
-      `conversations_system`: service-role-only home for facts members must not
-      rewrite (channel_type, org_visible), since anon+authenticated hold UPDATE
-      on conversations.extra. Pattern for future `<table>_system`.
+      (`get_visible_addresses` / `get_participant_conversations` /
+      `get_private_conversations`) — plans now show hashed SubPlans instead of a
+      per-row function call. Added `conversations_system`: service-role-only
+      home for facts members must not rewrite (channel_type, private), since
+      anon+authenticated hold UPDATE on conversations.extra. Pattern for future
+      `<table>_system`.
 
 - [ ] Uniform connection ownership — whatsapp/instagram already resolve the
       newest connected row, so reconnecting from another org steals the

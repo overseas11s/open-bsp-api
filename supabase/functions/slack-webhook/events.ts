@@ -163,15 +163,20 @@ async function anyWorkspaceToken(ctx: Ctx): Promise<string | null> {
 }
 
 /**
- * Records the container kind on conversations_system — the service-role-only
- * table. It deliberately does NOT live in conversations.extra: authenticated
- * AND anon hold UPDATE on conversations, so anything visibility depends on
- * would be member-writable there.
+ * Records system-controlled facts on conversations_system. Deliberately NOT
+ * conversations.extra: authenticated AND anon hold UPDATE on conversations,
+ * so anything visibility depends on would be member-writable there.
+ *
+ * `private` is not passed and not overwritten — it defaults to true, which is
+ * what every Slack conversation needs while the anchor it hangs off is
+ * ownerless (that anchor is the bot's, i.e. a shared inbox, so without the
+ * override a member's DM would be org-wide). Only the bot path, once it
+ * lands, sets it false for containers the bot is actually in.
  */
 async function setChannelType(
   ctx: Ctx,
   conversation_id: string,
-  channel_type: ChannelType,
+  channel_type?: ChannelType,
 ): Promise<void> {
   await ctx.client
     .from("conversations_system")
@@ -221,7 +226,7 @@ async function ensureConversation(
     if (!known?.channel_type) {
       const resolved = channel_type ?? await resolveChannelType(ctx, channel);
 
-      if (resolved) await setChannelType(ctx, existing.id, resolved);
+      await setChannelType(ctx, existing.id, resolved);
     }
 
     return existing.id;
@@ -241,7 +246,10 @@ async function ensureConversation(
     .single()
     .throwOnError();
 
-  if (resolved) await setChannelType(ctx, created.id, resolved);
+  // Always write the row, even when the kind is unknown: absent means "no
+  // override", and this conversation hangs off the ownerless anchor, so
+  // absent would make it org-wide.
+  await setChannelType(ctx, created.id, resolved);
 
   const authorizations =
     (await eventAuthorizations(ctx.envelope.event_context ?? "")) ??
