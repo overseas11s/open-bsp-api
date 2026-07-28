@@ -22,6 +22,7 @@ import { MAX_STORAGE_UPLOAD_SIZE, uploadToStorage } from "../_shared/media.ts";
 import {
   ensureFreshToken,
   eventAuthorizations,
+  slackApi,
   type SlackConnection,
   type SlackUser,
   usersInfo,
@@ -29,45 +30,27 @@ import {
 import { slackToMarkdown } from "../_shared/markdown.ts";
 import { emojiFromShortcode } from "../_shared/emoji.ts";
 
-export type SlackEnvelope = {
-  type: "url_verification" | "event_callback" | string;
-  challenge?: string;
-  team_id?: string;
-  event_id?: string;
-  event_context?: string;
-  authorizations?: Array<{ user_id: string; is_bot?: boolean }>;
-  event?: SlackEvent;
-};
+import type {
+  ChannelArchiveEvent,
+  ChannelRenameEvent,
+  ChannelUnarchiveEvent,
+  MemberJoinedChannelEvent,
+  MemberLeftChannelEvent,
+  ReactionAddedEvent,
+  ReactionRemovedEvent,
+  TokensRevokedEvent,
+  UserChangeEvent,
+} from "@slack/types";
+import {
+  type ChannelType,
+  channelTypeFromChannel,
+  channelTypeFromMessageEvent,
+  type SlackEnvelope,
+  type SlackFile,
+  type SlackMessageEvent,
+} from "../_shared/slack_events.ts";
 
-type SlackFile = {
-  id: string;
-  name?: string;
-  mimetype?: string;
-  size?: number;
-  url_private?: string;
-};
-
-/** Loose union — only the fields the handlers read. */
-type SlackEvent = {
-  type: string;
-  subtype?: string;
-  user?: string;
-  channel?: string | { id: string; name?: string };
-  channel_type?: "im" | "mpim" | "group" | "channel";
-  text?: string;
-  ts?: string;
-  event_ts?: string;
-  thread_ts?: string;
-  deleted_ts?: string;
-  hidden?: boolean;
-  bot_id?: string;
-  files?: SlackFile[];
-  message?: { ts?: string; text?: string; user?: string };
-  previous_message?: { ts?: string };
-  reaction?: string;
-  item?: { type?: string; channel?: string; ts?: string };
-  tokens?: { oauth?: string[]; bot?: string[] };
-};
+export type { SlackEnvelope };
 
 const tsToIso = (ts: string) => new Date(parseFloat(ts) * 1000).toISOString();
 
@@ -107,7 +90,12 @@ export async function handleEvent(
     case "app_uninstalled":
       return await onAppUninstalled(ctx);
     default:
-      log.info(`Ignoring Slack event type ${event.type}`);
+      // Unsubscribed type: the union above is exhaustive, so `event` is
+      // `never` here. The one cast in this file, and the only place the
+      // payload is not fully described by an official type.
+      log.info(
+        `Ignoring Slack event type ${(event as { type: string }).type}`,
+      );
   }
 }
 
@@ -175,6 +163,27 @@ async function anyWorkspaceToken(ctx: Ctx): Promise<string | null> {
 }
 
 /**
+ * Records the container kind on conversations_system — the service-role-only
+ * table. It deliberately does NOT live in conversations.extra: authenticated
+ * AND anon hold UPDATE on conversations, so anything visibility depends on
+ * would be member-writable there.
+ */
+async function setChannelType(
+  ctx: Ctx,
+  conversation_id: string,
+  channel_type: ChannelType,
+): Promise<void> {
+  await ctx.client
+    .from("conversations_system")
+    .upsert({
+      conversation_id,
+      organization_id: ctx.organization_id,
+      channel_type,
+    }, { onConflict: "conversation_id" })
+    .throwOnError();
+}
+
+/**
  * Finds the conversation for a channel; creates it (plus its audience) on
  * first contact — e.g. a DM opened after the members' initial sync. The
  * audience comes from apps.event.authorizations.list (all installs this
@@ -183,11 +192,11 @@ async function anyWorkspaceToken(ctx: Ctx): Promise<string | null> {
 async function ensureConversation(
   ctx: Ctx,
   channel: string,
-  channel_type?: SlackEvent["channel_type"],
+  channel_type?: ChannelType,
 ): Promise<string> {
   const { data: existing } = await ctx.client
     .from("conversations")
-    .select("id")
+    .select("id, conversations_system(channel_type)")
     .eq("organization_id", ctx.organization_id)
     .eq("organization_address", ctx.team)
     .eq("conversation_address", channel)
@@ -198,7 +207,27 @@ async function ensureConversation(
     .maybeSingle()
     .throwOnError();
 
-  if (existing) return existing.id;
+  if (existing) {
+    // Backfill a classification the creating event could not supply (a
+    // reaction or a member_joined arriving before any message). Without this
+    // the gap is sticky: channel_type stays absent forever, because every
+    // later event short-circuits on the existing row.
+    const system = existing.conversations_system as unknown as
+      | { channel_type: string | null }
+      | { channel_type: string | null }[]
+      | null;
+    const known = Array.isArray(system) ? system[0] : system;
+
+    if (!known?.channel_type) {
+      const resolved = channel_type ?? await resolveChannelType(ctx, channel);
+
+      if (resolved) await setChannelType(ctx, existing.id, resolved);
+    }
+
+    return existing.id;
+  }
+
+  const resolved = channel_type ?? await resolveChannelType(ctx, channel);
 
   const { data: created } = await ctx.client
     .from("conversations")
@@ -207,11 +236,12 @@ async function ensureConversation(
       service: "slack" as const,
       organization_address: ctx.team,
       conversation_address: channel,
-      extra: channel_type ? { channel_type: mapChannelType(channel_type) } : {},
     })
     .select("id")
     .single()
     .throwOnError();
+
+  if (resolved) await setChannelType(ctx, created.id, resolved);
 
   const authorizations =
     (await eventAuthorizations(ctx.envelope.event_context ?? "")) ??
@@ -237,18 +267,27 @@ async function ensureConversation(
   return created.id;
 }
 
-function mapChannelType(
-  channel_type: NonNullable<SlackEvent["channel_type"]>,
-): string {
-  switch (channel_type) {
-    case "im":
-      return "im";
-    case "mpim":
-      return "mpim";
-    case "group":
-      return "private_channel";
-    default:
-      return "public_channel";
+/**
+ * Authoritative classification via conversations.info — the only source that
+ * always separates public from private. Used when the event's own
+ * channel_type is absent (reactions) or inconclusive (member_joined reports
+ * `C`, which covers public channels AND private ones created after March
+ * 2021). Returns undefined if no workspace token is usable; the caller then
+ * records no channel_type rather than guessing.
+ */
+async function resolveChannelType(
+  ctx: Ctx,
+  channel: string,
+): Promise<ChannelType | undefined> {
+  const token = await anyWorkspaceToken(ctx);
+  if (!token) return undefined;
+
+  try {
+    const info = await slackApi("conversations.info", token, { channel });
+    return info.channel ? channelTypeFromChannel(info.channel) : undefined;
+  } catch (error) {
+    log.warn(`Slack conversations.info failed for ${channel}`, error);
+    return undefined;
   }
 }
 
@@ -291,7 +330,10 @@ async function ensureContact(ctx: Ctx, slackUser: string): Promise<void> {
 }
 
 // Regular messages, file shares, thread broadcasts, edits and deletions.
-async function onMessage(ctx: Ctx, event: SlackEvent): Promise<void> {
+async function onMessage(
+  ctx: Ctx,
+  event: SlackMessageEvent,
+): Promise<void> {
   const channel = event.channel as string;
 
   if (event.subtype === "message_changed") {
@@ -334,7 +376,7 @@ async function onMessage(ctx: Ctx, event: SlackEvent): Promise<void> {
   const conversation_id = await ensureConversation(
     ctx,
     channel,
-    event.channel_type,
+    channelTypeFromMessageEvent(event.channel_type),
   );
 
   const linked = await linkedAgent(ctx, event.user);
@@ -462,7 +504,10 @@ function kindFromMime(mime: string): "image" | "audio" | "video" | "document" {
 
 // Reactions are data parts (multi-user, add/remove) referencing the reacted
 // message via re_message_id — see ReactionPart in message_types.ts.
-async function onReaction(ctx: Ctx, event: SlackEvent): Promise<void> {
+async function onReaction(
+  ctx: Ctx,
+  event: ReactionAddedEvent | ReactionRemovedEvent,
+): Promise<void> {
   if (event.item?.type !== "message") return;
   const { channel, ts } = event.item;
   if (!channel || !ts || !event.user || !event.reaction) return;
@@ -501,18 +546,17 @@ async function onReaction(ctx: Ctx, event: SlackEvent): Promise<void> {
     .throwOnError();
 }
 
-async function onMemberJoined(ctx: Ctx, event: SlackEvent): Promise<void> {
-  const channel = event.channel as string;
+async function onMemberJoined(
+  ctx: Ctx,
+  event: MemberJoinedChannelEvent,
+): Promise<void> {
+  const channel = event.channel;
   if (!event.user || !channel) return;
 
   const linked = await linkedAgent(ctx, event.user);
   if (!linked) return;
 
-  const conversation_id = await ensureConversation(
-    ctx,
-    channel,
-    event.channel_type,
-  );
+  const conversation_id = await ensureConversation(ctx, channel);
 
   await ctx.client
     .from("conversations_agents")
@@ -525,7 +569,10 @@ async function onMemberJoined(ctx: Ctx, event: SlackEvent): Promise<void> {
     .throwOnError();
 }
 
-async function onMemberLeft(ctx: Ctx, event: SlackEvent): Promise<void> {
+async function onMemberLeft(
+  ctx: Ctx,
+  event: MemberLeftChannelEvent,
+): Promise<void> {
   const channel = event.channel as string;
   if (!event.user || !channel) return;
 
@@ -552,7 +599,10 @@ async function onMemberLeft(ctx: Ctx, event: SlackEvent): Promise<void> {
     .throwOnError();
 }
 
-async function onChannelRename(ctx: Ctx, event: SlackEvent): Promise<void> {
+async function onChannelRename(
+  ctx: Ctx,
+  event: ChannelRenameEvent,
+): Promise<void> {
   const channel = event.channel as { id: string; name?: string };
   if (!channel?.id) return;
 
@@ -566,10 +616,11 @@ async function onChannelRename(ctx: Ctx, event: SlackEvent): Promise<void> {
     .throwOnError();
 }
 
-async function onChannelArchive(ctx: Ctx, event: SlackEvent): Promise<void> {
-  const channel = typeof event.channel === "string"
-    ? event.channel
-    : event.channel?.id;
+async function onChannelArchive(
+  ctx: Ctx,
+  event: ChannelArchiveEvent | ChannelUnarchiveEvent,
+): Promise<void> {
+  const channel = event.channel;
   if (!channel) return;
 
   await ctx.client
@@ -584,8 +635,11 @@ async function onChannelArchive(ctx: Ctx, event: SlackEvent): Promise<void> {
     .throwOnError();
 }
 
-async function onUserChange(ctx: Ctx, event: SlackEvent): Promise<void> {
-  const user = event.user as unknown as SlackUser;
+async function onUserChange(
+  ctx: Ctx,
+  event: UserChangeEvent,
+): Promise<void> {
+  const user = event.user;
   if (!user?.id || user.is_bot) return;
 
   await ctx.client
@@ -609,7 +663,10 @@ async function onUserChange(ctx: Ctx, event: SlackEvent): Promise<void> {
 
 // A member revoked the app from the Slack side: flip their connection to
 // disconnected (same semantics as DELETE /connect — everything else stays).
-async function onTokensRevoked(ctx: Ctx, event: SlackEvent): Promise<void> {
+async function onTokensRevoked(
+  ctx: Ctx,
+  event: TokensRevokedEvent,
+): Promise<void> {
   for (const user of event.tokens?.oauth ?? []) {
     await ctx.client
       .from("organizations_addresses")

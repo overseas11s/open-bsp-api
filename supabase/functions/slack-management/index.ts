@@ -26,6 +26,7 @@ import { Json } from "../_shared/db_types.ts";
 import { createClient, createUnsecureClient } from "../_shared/supabase.ts";
 import {
   buildAuthorizeUrl,
+  type ConnectMode,
   ensureFreshToken,
   oauthAccess,
   slackApi,
@@ -162,6 +163,7 @@ async function getOwnConnection(agent_id: string, organization_id: string) {
 app.get("/slack-management/authorize-url", (c) => {
   const redirect_uri = c.req.query("redirect_uri");
   const state = c.req.query("state");
+  const mode = (c.req.query("mode") ?? "user") as ConnectMode;
 
   if (!redirect_uri) {
     throw new HTTPException(400, {
@@ -169,7 +171,13 @@ app.get("/slack-management/authorize-url", (c) => {
     });
   }
 
-  return c.json({ url: buildAuthorizeUrl(redirect_uri, state) });
+  if (!["user", "bot", "both"].includes(mode)) {
+    throw new HTTPException(400, {
+      message: `Invalid 'mode' ${mode}; expected user, bot or both`,
+    });
+  }
+
+  return c.json({ url: buildAuthorizeUrl(redirect_uri, state, mode) });
 });
 
 // Connect the calling member's Slack account (OAuth code exchange).
@@ -192,10 +200,24 @@ app.post("/slack-management/connect", async (c) => {
   const team = access.team;
   const authed = access.authed_user;
 
-  if (!team?.id || !authed?.id || !authed.access_token) {
+  // Which grant came back is decided by the authorize URL's mode: a bot token
+  // arrives at the top level, the member's under authed_user. Either alone is
+  // a valid install; neither is not.
+  const bot_token = access.access_token;
+  const user_token = authed?.access_token;
+
+  if (!team?.id || (!bot_token && !user_token)) {
     throw new HTTPException(502, {
-      message: "Slack OAuth response missing team or user token",
-      cause: access as Json,
+      message: "Slack OAuth response missing team, and bot and user tokens",
+      // The official response type has no index signature; widen for logging.
+      cause: access as unknown as Json,
+    });
+  }
+
+  if (user_token && !authed?.id) {
+    throw new HTTPException(502, {
+      message: "Slack OAuth returned a user token without a user id",
+      cause: access as unknown as Json,
     });
   }
 
@@ -222,7 +244,10 @@ app.post("/slack-management/connect", async (c) => {
 
   // Workspace anchor (ownerless) — conversations reference it. Slack is an
   // intra-org service, so ownerless does NOT mean org-wide: visibility is
-  // membership-based per is_conversation_visible.
+  // membership-based per is_conversation_visible. The bot token lives here
+  // because a bot is workspace-wide and singular, unlike the per-member user
+  // tokens below. set_extra merges, so a user-only reconnect leaves an
+  // existing bot token intact and vice versa.
   await client
     .from("organizations_addresses")
     .upsert({
@@ -230,11 +255,29 @@ app.post("/slack-management/connect", async (c) => {
       service: "slack" as const,
       address: team.id,
       status: "connected",
-      extra: { team_name: team.name, enterprise_id: access.enterprise?.id },
+      extra: {
+        team_name: team.name,
+        enterprise_id: access.enterprise?.id,
+        ...(bot_token
+          ? {
+            access_token: bot_token,
+            bot_user_id: access.bot_user_id,
+            bot_scopes: access.scope,
+          }
+          : {}),
+      },
     })
     .throwOnError();
 
-  // The member's personal identity + token.
+  // The member's personal identity + token — only when user scopes were
+  // granted. A bot-only install has no member connection and nothing to sync:
+  // its conversations arrive through the bot's own event subscriptions.
+  if (!user_token || !authed?.id) {
+    log.info("Slack bot connected", { organization_id, team_id: team.id });
+
+    return c.json({ address: null, team_id: team.id, bot: true, sync: null });
+  }
+
   const address = `${team.id}:${authed.id}`;
 
   await client
@@ -248,7 +291,7 @@ app.post("/slack-management/connect", async (c) => {
       extra: {
         team_id: team.id,
         slack_user_id: authed.id,
-        access_token: authed.access_token,
+        access_token: user_token,
         refresh_token: authed.refresh_token,
         expires_at: authed.expires_in
           ? new Date(Date.now() + authed.expires_in * 1000).toISOString()
@@ -258,7 +301,12 @@ app.post("/slack-management/connect", async (c) => {
     })
     .throwOnError();
 
-  log.info("Slack connected", { organization_id, address, agent: agent.id });
+  log.info("Slack connected", {
+    organization_id,
+    address,
+    agent: agent.id,
+    bot: Boolean(bot_token),
+  });
 
   // Initial sync inline: directory + the member's conversations. On failure
   // the connection stays usable; the UI can retry via POST /sync.
@@ -267,11 +315,16 @@ app.post("/slack-management/connect", async (c) => {
       organization_id,
       agent_id: agent.id,
       team_id: team.id,
-      token: authed.access_token,
+      token: user_token,
       slack_user_id: authed.id,
     });
 
-    return c.json({ address, team_id: team.id, sync: summary });
+    return c.json({
+      address,
+      team_id: team.id,
+      bot: Boolean(bot_token),
+      sync: summary,
+    });
   } catch (error) {
     log.error("Slack initial sync failed", error);
 
@@ -289,7 +342,12 @@ app.post("/slack-management/connect", async (c) => {
       })
       .throwOnError();
 
-    return c.json({ address, team_id: team.id, sync: null });
+    return c.json({
+      address,
+      team_id: team.id,
+      bot: Boolean(bot_token),
+      sync: null,
+    });
   }
 });
 

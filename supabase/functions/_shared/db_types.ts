@@ -870,6 +870,51 @@ export type Database = {
           },
         ]
       }
+      conversations_system: {
+        Row: {
+          channel_type: string | null
+          conversation_id: string
+          created_at: string
+          extra: Json | null
+          org_visible: boolean
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          channel_type?: string | null
+          conversation_id: string
+          created_at?: string
+          extra?: Json | null
+          org_visible?: boolean
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          channel_type?: string | null
+          conversation_id?: string
+          created_at?: string
+          extra?: Json | null
+          org_visible?: boolean
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversations_system_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: true
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversations_system_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       logs: {
         Row: {
           category: string
@@ -1227,6 +1272,14 @@ export type Database = {
         Args: { role?: Database["public"]["Enums"]["role"] }
         Returns: string[]
       }
+      get_visible_addresses: {
+        Args: never
+        Returns: {
+          address: string
+          organization_id: string
+        }[]
+      }
+      get_visible_conversations: { Args: never; Returns: string[] }
       init_data: {
         Args: {
           p_limit?: number

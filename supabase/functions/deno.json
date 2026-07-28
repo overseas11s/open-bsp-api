@@ -23,6 +23,8 @@
     "postgres": "npm:postgres@^3.4.7",
     "zod": "npm:zod@^4.0.9",
     "ajv": "https://esm.sh/ajv@8.17/dist/2020",
+    "@slack/web-api": "npm:@slack/web-api@^8.0.0",
+    "@slack/types": "npm:@slack/types@^3.0.0",
     "@hono/mcp": "npm:@hono/mcp",
     "@hono/hono": "jsr:@hono/hono",
     "openai/resources/chat/completions": "npm:openai@^5.12.2/resources/chat/completions",

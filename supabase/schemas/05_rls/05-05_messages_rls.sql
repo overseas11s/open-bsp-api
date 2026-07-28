@@ -10,8 +10,11 @@ using (
   organization_id in (
     select public.get_authorized_orgs('member')
   )
-  and public.is_conversation_visible(
-    conversation_id, organization_id, organization_address, service
+  and (
+    (organization_id, organization_address) in (
+      select v.organization_id, v.address from public.get_visible_addresses() v
+    )
+    or conversation_id in (select public.get_visible_conversations())
   )
 );
 
@@ -25,7 +28,10 @@ with check (
   organization_id in (
     select public.get_authorized_orgs('member')
   )
-  and public.is_conversation_visible(
-    conversation_id, organization_id, organization_address, service
+  and (
+    (organization_id, organization_address) in (
+      select v.organization_id, v.address from public.get_visible_addresses() v
+    )
+    or conversation_id in (select public.get_visible_conversations())
   )
 );

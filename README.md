@@ -917,10 +917,10 @@ privacy. A Slack conversation is visible only to the members who are in it on
 Slack; there is no org-wide access, and no role bypass (owners/admins cannot
 read other members' conversations).
 
-The app acts **as the user** (xoxp user tokens, no bot): each member connects
-their own Slack account through OAuth, messages sent from OpenBSP post genuinely
-as them, and everything they can see on Slack flows in — including messages
-typed in the Slack apps, edits, deletions, reactions, threads and files.
+The app acts **as the user** (xoxp user tokens): each member connects their own
+Slack account through OAuth, messages sent from OpenBSP post genuinely as them,
+and everything they can see on Slack flows in — including messages typed in the
+Slack apps, edits, deletions, reactions, threads and files.
 
 ### Create the Slack app
 
@@ -929,7 +929,10 @@ typed in the Slack apps, edits, deletions, reactions, threads and files.
    `channels:read`, `groups:history`, `groups:read`, `im:history`, `im:read`,
    `im:write`, `mpim:history`, `mpim:read`, `mpim:write`, `chat:write`,
    `users:read`, `files:read`, `files:write`, `reactions:read`,
-   `reactions:write`.
+   `reactions:write`. Declare the same list as **bot token scopes** if you want
+   to offer workspace-wide installs — scopes must be on the app before the
+   authorize URL can request them, and marketplace review audits everything
+   declared, whether or not a given install requests it.
 2. Add your UI's OAuth callback as a **redirect URL**.
 3. Enable **Event Subscriptions** pointing at
    `https://<project>.supabase.co/functions/v1/slack-webhook` and subscribe to
@@ -955,13 +958,22 @@ typed in the Slack apps, edits, deletions, reactions, threads and files.
 ### Connecting members
 
 Each member connects individually: `GET /slack-management/authorize-url`
-composes the OAuth URL, the callback exchanges the code via
-`POST /slack-management/connect` (user JWT — API keys cannot own a personal
-connection), which stores the workspace anchor plus the member's identity and
-runs the initial sync (workspace directory → contacts, the member's
+composes the OAuth URL — `?mode=user` (default), `bot` or `both`, which map to
+Slack's `user_scope` and `scope` parameters — and the callback exchanges the
+code via `POST /slack-management/connect` (user JWT — API keys cannot own a
+personal connection), which stores the workspace anchor plus the member's
+identity and runs the initial sync (workspace directory → contacts, the member's
 conversations → visibility). `POST /slack-management/sync` re-syncs,
 `DELETE /slack-management/connect` disconnects — revoking the token but keeping
 history readable, frozen, until reconnect.
+
+A bot install is workspace-wide and singular (one bot per app per workspace,
+reachable by every member); its token is stored on the ownerless workspace
+anchor rather than a member row, and there is no initial sync because it owns no
+personal conversations. Note that connecting a bot does not by itself ingest
+anything: that additionally needs bot events subscribed on the Slack app, and a
+visibility rule for conversations no connected member belongs to — without one
+they are visible to nobody.
 
 One Slack workspace maps to one organization. Token rotation (marketplace apps)
 is supported: rotated tokens refresh inline on send and via the

@@ -42,6 +42,11 @@ Monetization (medium-term)
       disconnects the connection inside the shared `ensureFreshToken` (reconnect
       prompt in the UI), and the webhook's `anyWorkspaceToken` refreshes
       expiring tokens, falling back to the next connected member
+- [x] Ground Slack client + webhook in official `@slack/web-api` /
+      `@slack/types` (type-only, zero runtime). `slackApi` indexed by method,
+      events a discriminated union. Fixed: `member_joined_channel`'s `C`/`G` was
+      recorded as public_channel, and reactions read `channel_type` at the wrong
+      nesting. Unknown channel types now ask `conversations.info`.
 - [ ] Review API keys — there is user-scoped content now; today API keys only
       pass the org-wide visibility branch (auth.uid() is null), revisit whether
       that stays the contract or keys grow a user scope
@@ -69,6 +74,25 @@ Monetization (medium-term)
       Options: a pg_cron sweep re-firing net.\_http_response failures, or move
       delivery to a queue table (pgmq) with attempt-count + backoff. Enqueue is
       already durable/transactional; only redelivery is missing.
+
+- [ ] Batched/async mass deletions — org delete cascades to 15 tables, account
+      delete cascades conversations+messages, and the Meta data-deletion
+      callback fires it unauthenticated. Mark + reap in pg_cron instead of one
+      transaction.
+
+- [x] RLS: per-row `is_conversation_visible()` replaced by InitPlan sets
+      (`get_visible_addresses` / `get_visible_conversations`) — plans now show
+      hashed SubPlans instead of a per-row function call. Added
+      `conversations_system`: service-role-only home for facts members must not
+      rewrite (channel_type, org_visible), since anon+authenticated hold UPDATE
+      on conversations.extra. Pattern for future `<table>_system`.
+
+- [ ] Uniform connection ownership — whatsapp/instagram already resolve the
+      newest connected row, so reconnecting from another org steals the
+      connection (fine: whoever owns the account may move it). Do the same for
+      slack (drop the connect 409) and the connectors. Exception: whatsapp-web
+      is a device login, so several tenants can hold live sessions for one
+      number at once. Optional: tenant discrimination in generic-webhook.
 
 - [ ] Improve routing of organization accounts and members
 

@@ -12,6 +12,10 @@ import {
   slackPaginate,
   type SlackUser,
 } from "../_shared/slack.ts";
+import {
+  type ChannelType,
+  channelTypeFromChannel,
+} from "../_shared/slack_events.ts";
 
 export type SyncSummary = {
   users: number;
@@ -44,10 +48,15 @@ export async function syncConnection(
   const usersById = new Map<string, SlackUser>();
 
   for await (
-    const users of slackPaginate<SlackUser>("users.list", token, "members")
+    const users of slackPaginate("users.list", token, "members")
   ) {
     const rows = users
-      .filter((u) => !u.deleted && !u.is_bot && u.id !== "USLACKBOT")
+      // `id` is optional in Slack's schema, and it keys contacts_addresses —
+      // narrow rather than assert, so an id-less member is skipped instead of
+      // upserting an undefined address.
+      .filter((u): u is SlackUser & { id: string } =>
+        Boolean(u.id) && !u.deleted && !u.is_bot && u.id !== "USLACKBOT"
+      )
       .map((u) => {
         usersById.set(u.id, u);
 
@@ -81,7 +90,7 @@ export async function syncConnection(
   // channels) — noise control is per-member state in conversations_agents,
   // not an ingestion gate.
   for await (
-    const channels of slackPaginate<SlackChannel>(
+    const channels of slackPaginate(
       "users.conversations",
       token,
       "channels",
@@ -158,13 +167,7 @@ async function ensureConversation(
     .maybeSingle()
     .throwOnError();
 
-  const channel_type = channel.is_im
-    ? "im"
-    : channel.is_mpim
-    ? "mpim"
-    : channel.is_private
-    ? "private_channel"
-    : "public_channel";
+  const channel_type = channelTypeFromChannel(channel);
 
   // DMs are titled by the counterpart; channels by their Slack name.
   const counterpart = channel.user ? usersById.get(channel.user) : undefined;
@@ -174,7 +177,6 @@ async function ensureConversation(
     : channel.name;
 
   const extra = {
-    channel_type,
     topic: channel.topic?.value || undefined,
     purpose: channel.purpose?.value || undefined,
     user: channel.user,
@@ -188,6 +190,8 @@ async function ensureConversation(
       .update({ name, extra })
       .eq("id", existing.id)
       .throwOnError();
+
+    await setChannelType(client, organization_id, existing.id, channel_type);
 
     return existing.id;
   }
@@ -206,5 +210,30 @@ async function ensureConversation(
     .single()
     .throwOnError();
 
+  await setChannelType(client, organization_id, created.id, channel_type);
+
   return created.id;
+}
+
+/**
+ * channel_type lives on conversations_system, not conversations.extra:
+ * authenticated AND anon hold UPDATE on conversations, so anything
+ * visibility depends on must sit in a table only the service role can write.
+ * Here the value is always authoritative — users.conversations returns
+ * is_im/is_mpim/is_private — so it overwrites rather than backfills.
+ */
+async function setChannelType(
+  client: SupabaseClient,
+  organization_id: string,
+  conversation_id: string,
+  channel_type: ChannelType,
+): Promise<void> {
+  await client
+    .from("conversations_system")
+    .upsert({
+      conversation_id,
+      organization_id,
+      channel_type,
+    }, { onConflict: "conversation_id" })
+    .throwOnError();
 }
