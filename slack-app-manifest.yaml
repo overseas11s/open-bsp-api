@@ -133,12 +133,11 @@ settings:
     #   - channel_archive
     #   - channel_unarchive
 
-  # Off today: connections are non-expiring, and the refresh-slack-tokens cron
-  # is a deliberate no-op until this flips. The code already handles rotation
-  # (ensureFreshToken refreshes inline and disconnects on a dead refresh
-  # token), so enabling it is a config change, not a code change. Marketplace
-  # distribution requires it.
-  token_rotation_enabled: false
+  # On. Rotated user tokens (xoxe.xoxp-…) expire ~12h after issue;
+  # ensureFreshToken refreshes inline before use and disconnects the
+  # connection on a dead refresh token, and the refresh-slack-tokens cron
+  # sweeps idle connections every 4h. Marketplace distribution requires this.
+  token_rotation_enabled: true
 
   org_deploy_enabled: false
   socket_mode_enabled: false
