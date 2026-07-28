@@ -910,17 +910,23 @@ replica by design (a WhatsApp session is one WebSocket).
 
 ## Slack integration
 
-Slack is OpenBSP's first **intra-org** channel: where WhatsApp/Instagram face
-customers through a shared inbox, Slack mirrors each member's own workspace
-conversations — their DMs, group DMs and channels — into OpenBSP, preserving
-privacy. A Slack conversation is visible only to the members who are in it on
-Slack; there is no org-wide access, and no role bypass (owners/admins cannot
-read other members' conversations).
+Slack is OpenBSP's first **intra-org** channel. It connects two ways, and a
+workspace may use either or both:
 
-The app acts **as the user** (xoxp user tokens): each member connects their own
-Slack account through OAuth, messages sent from OpenBSP post genuinely as them,
-and everything they can see on Slack flows in — including messages typed in the
-Slack apps, edits, deletions, reactions, threads and files.
+- **As a member** (`xoxp` user token) — each member connects their own account.
+  Their DMs, group DMs and channels mirror into OpenBSP, visible only to them
+  and whoever else is in that conversation on Slack. Messages sent from OpenBSP
+  post genuinely as them. There is no role bypass: owners and admins cannot read
+  a member's conversations.
+- **As a bot** (`xoxb` bot token) — the workspace-wide install, and the direct
+  equivalent of connecting a shared WhatsApp number. Everything the bot is in
+  belongs to the whole organization, private channels included; being invited is
+  the sanctioning act. Messages with no member behind them (API keys,
+  automations, AI agents) go out as the bot.
+
+Both land in the same conversations, so a channel holding the bot and a member
+is org-wide, while that member's DMs stay private. Editing, deleting, reacting,
+threads and files all flow in either direction.
 
 ### Create the Slack app
 
@@ -954,32 +960,28 @@ truth; the steps below say what to do with it.
    Generate it under **Basic Information → App-Level Tokens** with the
    `authorizations:read` scope.
 
-### Connecting members
+### Connecting
 
-Each member connects individually: `GET /slack-management/authorize-url`
-composes the OAuth URL — `?mode=user` (default), `bot` or `both`, which map to
-Slack's `user_scope` and `scope` parameters — and the callback exchanges the
-code via `POST /slack-management/connect` (user JWT — API keys cannot own a
-personal connection), which stores the workspace anchor plus the member's
-identity and runs the initial sync (workspace directory → contacts, the member's
-conversations → visibility). `POST /slack-management/sync` re-syncs,
-`DELETE /slack-management/connect` disconnects — revoking the token but keeping
-history readable, frozen, until reconnect.
+`GET /slack-management/authorize-url?redirect_uri=…&mode=` composes the OAuth
+URL. `mode` is `user` (default), `bot` or `both` — they map to Slack's
+`user_scope` and `scope`, and one flow can carry both. The callback exchanges
+the code via `POST /slack-management/connect` (user JWT; API keys cannot own a
+connection). Connecting runs the initial sync: the workspace directory becomes
+contacts, and the conversations of whatever connected — the member's, or the
+bot's — become conversations. After that the webhook keeps up.
 
-A bot install is workspace-wide and singular (one bot per app per workspace,
-reachable by every member); its token is stored on the ownerless workspace
-anchor rather than a member row, and outgoing messages that name no member — API
-keys, automations, AI agents — are sent as the bot rather than rejected. The bot
-IS the shared inbox — think of it as connecting a common WhatsApp number — so
-every container it is in is visible to the whole organization, private channels
-included: being invited is the sanctioning act. Connecting one enumerates what
-the bot is already in; after that the webhook keeps up, clearing the override
-when the bot joins a channel and restoring it when it leaves. Members' own DMs
-and channels the bot is not in stay private regardless.
+`POST /slack-management/sync` re-syncs. `DELETE /slack-management/connect`
+disconnects: the token is revoked and cleared, but history stays readable,
+frozen, until reconnect.
 
-One Slack workspace maps to one organization. Token rotation (marketplace apps)
-is supported: rotated tokens refresh inline on send and via the
-`/slack-management/refresh-tokens` cron endpoint.
+Address rows per workspace: the **anchor** (`T…`, ownerless) holds the bot token
+if there is one and is what conversations hang off; a **personal** row (`T…:U…`)
+per connected member holds their user token. An org may install only the bot and
+never connect a member — then the bot token serves every workspace read.
+
+One Slack workspace maps to one organization. Token rotation is enabled: rotated
+tokens refresh inline on send and via the `/slack-management/refresh-tokens`
+cron.
 
 ## Architecture
 

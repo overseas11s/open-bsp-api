@@ -392,8 +392,10 @@ where conversation_address is null
 alter table public.conversations enable trigger user;
 alter table public.messages enable trigger user;
 
--- group_address existed but never went productive; its useful content now
--- lives in conversation_address (backfill above).
+-- group_address is in real use (WhatsApp group keying, added by
+-- 20260715042918) — the backfill above copied it into conversation_address,
+-- which is what makes dropping it safe. Verify that backfill ran before this
+-- point; there is no way back once the column is gone.
 alter table "public"."conversations" drop column "group_address";
 
 alter table "public"."messages" drop column "group_address";
