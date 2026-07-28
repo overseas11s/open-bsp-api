@@ -39,7 +39,7 @@ features:
 
 oauth_config:
   redirect_urls:
-    - https://<ui-host>/slack/callback
+    - https://<ui-host>/oauth/slack
 
   scopes:
     # Mirrors USER_SCOPES in supabase/functions/_shared/slack.ts. Keep the two

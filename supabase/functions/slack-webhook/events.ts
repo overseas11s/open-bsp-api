@@ -129,11 +129,17 @@ async function linkedAgent(
   return data?.agent_id ? { agent_id: data.agent_id, address } : null;
 }
 
-/** Any connected member's token — for reads that need a workspace token
- * (users.info, file downloads); Slack scopes them per-user but directory and
- * shared-file reads are equivalent across members. Expiry-aware: each
- * candidate goes through ensureFreshToken (refreshing rotated tokens about
- * to expire), falling back to the next member when a refresh fails. */
+/** Any usable token for this workspace — for reads that need one (users.info,
+ * conversations.info, file downloads); Slack scopes them per-identity but
+ * directory and shared-file reads are equivalent across them.
+ *
+ * Candidates are every connected member PLUS the anchor, which carries the
+ * bot token when a bot is installed. The anchor matters on its own: an org
+ * may install ONLY the bot and never connect a member, and without it every
+ * read here would have no token at all.
+ *
+ * Expiry-aware: each candidate goes through ensureFreshToken (refreshing
+ * rotated tokens about to expire), falling back to the next when one fails. */
 async function anyWorkspaceToken(ctx: Ctx): Promise<string | null> {
   const { data } = await ctx.client
     .from("organizations_addresses")
@@ -141,7 +147,7 @@ async function anyWorkspaceToken(ctx: Ctx): Promise<string | null> {
     .eq("organization_id", ctx.organization_id)
     .eq("service", "slack")
     .eq("status", "connected")
-    .like("address", `${ctx.team}:%`)
+    .or(`address.eq.${ctx.team},address.like.${ctx.team}:%`)
     .not("extra->>access_token", "is", null)
     .throwOnError();
 
@@ -788,11 +794,14 @@ async function onAppUninstalled(ctx: Ctx): Promise<void> {
     .or(`address.eq.${ctx.team},address.like.${ctx.team}:%`)
     .throwOnError();
 
+  // Secrets on both kinds of row: the members' user tokens and the anchor's
+  // bot token. A bot-only workspace has nothing matching `T…:%`, so scoping
+  // this to personal rows would leave the bot token behind after uninstall.
   await ctx.client
     .from("organizations_addresses")
     .update({ extra: { access_token: null, refresh_token: null } })
     .eq("organization_id", ctx.organization_id)
     .eq("service", "slack")
-    .like("address", `${ctx.team}:%`)
+    .or(`address.eq.${ctx.team},address.like.${ctx.team}:%`)
     .throwOnError();
 }

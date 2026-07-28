@@ -46,7 +46,10 @@ real-workspace E2E and the UI pieces.
   authorizations, on `member_joined_channel` for the bot, and for everything it
   is already in at connect time (`syncBotConnection`); restored when it leaves.
   Verified on the local DB — a non-member sees a private channel only while the
-  bot is in it, and never sees another member's DM.
+  bot is in it, and never sees another member's DM. Bot-only workspaces are
+  first class: the anchor's token serves every workspace read, the bot connect
+  syncs the directory, uninstall clears the bot secret, and a dead bot token
+  disconnects the anchor.
 - **slack-management** — per-member OAuth connect (workspace anchor `T…` +
   personal `T…:U…` rows, 409 if the workspace belongs to another org), sync
   (users → contacts, channels → conversations + memberships), disconnect

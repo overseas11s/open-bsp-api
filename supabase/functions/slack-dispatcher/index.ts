@@ -251,8 +251,11 @@ Deno.serve(async (req) => {
     return new Response();
   }
 
+  let used: SlackConnection | undefined;
+
   try {
     const { connection, asBot } = await getConnection(client, message);
+    used = connection;
     const accessToken = await ensureFreshToken(
       client,
       message.organization_id,
@@ -294,17 +297,23 @@ Deno.serve(async (req) => {
         code: slackCode,
       });
 
-      await client
-        .from("organizations_addresses")
-        .update({
-          status: "disconnected",
-          extra: { access_token: null, refresh_token: null },
-        })
-        .eq("organization_id", message.organization_id)
-        .eq("service", "slack")
-        .eq("agent_id", message.agent_id!)
-        .like("address", `${message.organization_address}:%`)
-        .throwOnError();
+      // Disconnect the row whose token actually failed, by address. Keying
+      // on agent_id would miss the bot: its connection is the ownerless
+      // anchor, so agent_id is null and there is no `T…:U…` address either.
+      // `used` is unset only if getConnection itself threw, which is not a
+      // token error.
+      if (used) {
+        await client
+          .from("organizations_addresses")
+          .update({
+            status: "disconnected",
+            extra: { access_token: null, refresh_token: null },
+          })
+          .eq("organization_id", message.organization_id)
+          .eq("service", "slack")
+          .eq("address", used.address)
+          .throwOnError();
+      }
     }
 
     const isRetryable = slackCode

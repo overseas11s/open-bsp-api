@@ -45,45 +45,12 @@ export async function syncConnection(
   // same as the whatsapp-web bridge. Slack user ids are workspace-scoped;
   // contacts/conversations use bare ids (U…/C…) — only organization address
   // rows are team-qualified (T…:U…).
-  const usersById = new Map<string, SlackUser>();
-
-  for await (
-    const users of slackPaginate("users.list", token, "members")
-  ) {
-    const rows = users
-      // `id` is optional in Slack's schema, and it keys contacts_addresses —
-      // narrow rather than assert, so an id-less member is skipped instead of
-      // upserting an undefined address.
-      .filter((u): u is SlackUser & { id: string } =>
-        Boolean(u.id) && !u.deleted && !u.is_bot && u.id !== "USLACKBOT"
-      )
-      .map((u) => {
-        usersById.set(u.id, u);
-
-        return {
-          organization_id,
-          service: "slack" as const,
-          address: u.id,
-          extra: {
-            synced: {
-              action: "add",
-              name: u.profile?.display_name || u.profile?.real_name || u.name,
-            },
-            team_id,
-            picture: u.profile?.image_192,
-          },
-        };
-      });
-
-    if (rows.length > 0) {
-      await client
-        .from("contacts_addresses")
-        .upsert(rows, { onConflict: "organization_id,service,address" })
-        .throwOnError();
-
-      summary.users += rows.length;
-    }
-  }
+  const usersById = await syncDirectory(client, {
+    organization_id,
+    team_id,
+    token,
+    summary,
+  });
 
   // The member's conversations → conversation rows + visibility. Everything
   // the member is in gets mirrored (DMs, group DMs, private and public
@@ -131,6 +98,65 @@ export async function syncConnection(
   log.info("Slack sync completed", { organization_id, agent_id, ...summary });
 
   return summary;
+}
+
+/**
+ * Workspace directory → contacts_addresses, and the id→user map the
+ * conversation pass uses to title DMs. Runs from whichever token is
+ * available: a member's on a personal connect, the bot's on a bot install —
+ * an org may install ONLY the bot, and then this is the sole path that ever
+ * populates contacts.
+ */
+async function syncDirectory(
+  client: SupabaseClient,
+  { organization_id, team_id, token, summary }: {
+    organization_id: string;
+    team_id: string;
+    token: string;
+    summary: { users: number };
+  },
+): Promise<Map<string, SlackUser>> {
+  const usersById = new Map<string, SlackUser>();
+
+  for await (
+    const users of slackPaginate("users.list", token, "members")
+  ) {
+    const rows = users
+      // `id` is optional in Slack's schema, and it keys contacts_addresses —
+      // narrow rather than assert, so an id-less member is skipped instead of
+      // upserting an undefined address.
+      .filter((u): u is SlackUser & { id: string } =>
+        Boolean(u.id) && !u.deleted && !u.is_bot && u.id !== "USLACKBOT"
+      )
+      .map((u) => {
+        usersById.set(u.id, u);
+
+        return {
+          organization_id,
+          service: "slack" as const,
+          address: u.id,
+          extra: {
+            synced: {
+              action: "add",
+              name: u.profile?.display_name || u.profile?.real_name || u.name,
+            },
+            team_id,
+            picture: u.profile?.image_192,
+          },
+        };
+      });
+
+    if (rows.length > 0) {
+      await client
+        .from("contacts_addresses")
+        .upsert(rows, { onConflict: "organization_id,service,address" })
+        .throwOnError();
+
+      summary.users += rows.length;
+    }
+  }
+
+  return usersById;
 }
 
 /**
@@ -262,9 +288,17 @@ export async function syncBotConnection(
     team_id: string;
     token: string;
   },
-): Promise<{ conversations: number }> {
-  const summary = { conversations: 0 };
-  const usersById = new Map<string, SlackUser>();
+): Promise<{ users: number; conversations: number }> {
+  const summary = { users: 0, conversations: 0 };
+
+  // A bot-only workspace never runs the member sync, so without this it would
+  // have no contacts at all and every sender would render as a raw U… id.
+  const usersById = await syncDirectory(client, {
+    organization_id,
+    team_id,
+    token,
+    summary,
+  });
 
   for await (
     const channels of slackPaginate(
