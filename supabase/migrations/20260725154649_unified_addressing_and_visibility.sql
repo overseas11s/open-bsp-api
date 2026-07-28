@@ -371,6 +371,16 @@ CREATE TRIGGER pause_conversation_on_human_message AFTER INSERT ON public.messag
 alter table public.conversations disable trigger user;
 alter table public.messages disable trigger user;
 
+-- messages_content_schema is NOT VALID: ~46k legacy rows predate the v1
+-- content shape and were grandfathered in when it was added. A CHECK is
+-- re-evaluated for every row an UPDATE touches — even when the update does
+-- not touch `content` — so the backfill below fails on every one of them
+-- (SQLSTATE 23514). Drop it for the duration and re-add it NOT VALID, which
+-- restores exactly the prior state: legacy rows stay grandfathered, new and
+-- updated rows are still checked. Same transaction as the backfill and under
+-- the access-exclusive lock, so no writer ever sees the table unconstrained.
+alter table public.messages drop constraint messages_content_schema;
+
 update public.conversations
 set conversation_address = coalesce(group_address, contact_address)
 where conversation_address is null
@@ -388,6 +398,16 @@ set
   end
 where conversation_address is null
   and direction is not null;
+
+alter table public.messages
+add constraint messages_content_schema check (
+  content = '{}'::jsonb -- status-only upserts (content merged later)
+  or (
+    content->>'version' is not null
+    and content->>'type' in ('text', 'file', 'data')
+    and content->>'kind' is not null
+  )
+) not valid;
 
 alter table public.conversations enable trigger user;
 alter table public.messages enable trigger user;
