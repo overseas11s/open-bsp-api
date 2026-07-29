@@ -195,9 +195,9 @@ insert into public.contacts_addresses (organization_id, service, address, extra,
 ;
 
 -- Conversations & Messages (for Mountain Peaks)
-insert into public.conversations (id, organization_id, organization_address, contact_address, service, status, name, extra) values
-  ('e5f6a7b8-c9d0-1e2f-3a4b-5c6d7e8f9a0b', '3a182d8d-d6d8-44bd-b021-029915476b8c', '318232498042593', '541133525394', 'whatsapp', 'active', 'Map trade', '{"default_agent_id": "b2c3d4e5-f6a7-8b9c-0d1e-2f3a4b5c6d7e"}'),
-  ('f6a7b8c9-d0e1-2f3a-4b5c-6d7e8f9a0b1c', '3a182d8d-d6d8-44bd-b021-029915476b8c', '318232498042593', '541133525395', 'whatsapp', 'closed', 'Emerald exchange', '{"paused": "2024-01-01T10:00:00Z", "default_agent_id": "b2c3d4e5-f6a7-8b9c-0d1e-2f3a4b5c6d7e"}')
+insert into public.conversations (id, organization_id, organization_address, contact_address, service, name, extra) values
+  ('e5f6a7b8-c9d0-1e2f-3a4b-5c6d7e8f9a0b', '3a182d8d-d6d8-44bd-b021-029915476b8c', '318232498042593', '541133525394', 'whatsapp', 'Map trade', '{"default_agent_id": "b2c3d4e5-f6a7-8b9c-0d1e-2f3a4b5c6d7e"}'),
+  ('f6a7b8c9-d0e1-2f3a-4b5c-6d7e8f9a0b1c', '3a182d8d-d6d8-44bd-b021-029915476b8c', '318232498042593', '541133525395', 'whatsapp', 'Emerald exchange', '{"paused": "2024-01-01T10:00:00Z", "default_agent_id": "b2c3d4e5-f6a7-8b9c-0d1e-2f3a4b5c6d7e"}')
 ;
 
 insert into public.messages (id, conversation_id, organization_id, organization_address, contact_address, service, direction, agent_id, content, status, timestamp) values
@@ -282,13 +282,6 @@ insert into billing.ledger (organization_id, product_id, type, quantity, agent_i
   ('3a182d8d-d6d8-44bd-b021-029915476b8c', 'ai_credits', 'consumption', -0.08, 'b2c3d4e5-f6a7-8b9c-0d1e-2f3a4b5c6d7e', 'google', 'gemini-2.5-flash', '{"input_tokens": 5000, "output_tokens": 1800}', true, '2026-01-10 08:30:00+00'),
   ('3a182d8d-d6d8-44bd-b021-029915476b8c', 'ai_credits', 'consumption', -0.14, 'a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', 'groq', 'openai/gpt-oss-120b', '{"input_tokens": 8500, "output_tokens": 2200}', true, '2026-01-22 13:00:00+00'),
   ('3a182d8d-d6d8-44bd-b021-029915476b8c', 'ai_credits', 'consumption', -0.09, 'b2c3d4e5-f6a7-8b9c-0d1e-2f3a4b5c6d7e', 'groq', 'openai/gpt-oss-20b', '{"input_tokens": 6000, "output_tokens": 1500}', true, '2025-12-15 10:00:00+00');
-
--- Quick Replies (for Mountain Peaks)
-insert into public.quick_replies (organization_id, name, content) values
-  ('3a182d8d-d6d8-44bd-b021-029915476b8c', 'Greeting', 'Welcome to Mountain Peaks! How can I help you?'),
-  ('3a182d8d-d6d8-44bd-b021-029915476b8c', 'Hours', 'We are open 24/7 in the Overworld!'),
-  ('3a182d8d-d6d8-44bd-b021-029915476b8c', 'Goodbye', 'Safe travels! Watch out for powder snow!')
-;
 
 -- Webhooks (for Mountain Peaks)
 insert into public.webhooks (organization_id, table_name, operations, url, token) values

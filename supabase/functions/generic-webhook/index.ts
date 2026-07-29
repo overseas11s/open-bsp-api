@@ -287,6 +287,54 @@ async function handle(req: Request): Promise<Response> {
     },
   );
 
+  // Conversations are normally minted by before_insert_on_messages, which
+  // defaults `type` to direct — right for every 1:1 chat and wrong for anything
+  // else. Only the connector can tell the difference, and it tells it by the
+  // address: the whatsmeow bridge sends a bare phone number for direct chats
+  // and a full JID otherwise, whose domain names the kind (the same test its
+  // dispatcher applies in reverse). So pre-create those rows before the
+  // messages land.
+  //
+  // ignoreDuplicates: an existing conversation is left exactly as it is — this
+  // classifies new ones, it does not retype old ones. The backfill migration
+  // covers rows that predate the column.
+  const containerType = (address: string): "group" | "broadcast" | undefined =>
+    address.endsWith("@g.us")
+      ? "group"
+      : address.endsWith("@broadcast")
+      ? "broadcast"
+      : undefined;
+
+  const containers = new Map<string, "group" | "broadcast">();
+
+  for (const { conversation_address } of messages) {
+    if (!conversation_address) continue;
+
+    const type = containerType(conversation_address);
+
+    if (type) containers.set(conversation_address, type);
+  }
+
+  if (containers.size > 0) {
+    await client
+      .from("conversations")
+      .upsert(
+        [...containers].map(([conversation_address, type]) => ({
+          organization_id,
+          service,
+          organization_address,
+          conversation_address,
+          type,
+        })),
+        {
+          onConflict:
+            "organization_id,service,organization_address,conversation_address",
+          ignoreDuplicates: true,
+        },
+      )
+      .throwOnError();
+  }
+
   const upsertBatch = async (label: string, rows: MessageInsert[]) => {
     if (rows.length === 0) return;
 

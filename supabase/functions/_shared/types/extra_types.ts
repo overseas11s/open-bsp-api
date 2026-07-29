@@ -74,14 +74,31 @@ export type OrganizationAddressExtra =
   | InstagramOrganizationAddressExtra
   | SlackOrganizationAddressExtra;
 
+/**
+ * Only the service role writes this on every service but `local` — RLS grants
+ * members no UPDATE on conversations elsewhere (see 05-03), which is what lets
+ * ingestor-owned facts share the bag with cosmetic ones.
+ *
+ * The channel's SHAPE is not here: it is the `type` column, in one
+ * cross-service vocabulary (direct/multiple/group/channel/broadcast).
+ */
 export type ConversationExtra = {
   memory?: Memory;
-  paused?: string;
+  /** UI preferences; moving to conversations_agents.extra, where they are per-member. */
   archived?: string;
   pinned?: string;
   default_agent_id?: string;
   // Slack (service = 'slack'; conversation_address = channel id)
-  channel_type?: "im" | "mpim" | "private_channel" | "public_channel";
+  /**
+   * Whether our bot is a member of this channel. The whole shared-inbox
+   * decision for Slack: the workspace anchor is ownerless, so it is the bot's
+   * presence — not the account — that makes a conversation org-visible.
+   * Absent means absent (fail closed), so the webhook writes it on every
+   * conversation it creates, including `false`.
+   */
+  is_bot_member?: boolean;
+  /** Slack channel archived. Named apart from the `archived` UI preference above. */
+  channel_archived?: boolean;
   topic?: string;
   purpose?: string;
   /** im only: the counterpart Slack user id */

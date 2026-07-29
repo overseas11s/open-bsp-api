@@ -82,11 +82,39 @@ Monetization (medium-term)
 
 - [x] RLS: per-row `is_conversation_visible()` replaced by InitPlan sets
       (`get_visible_addresses` / `get_participant_conversations` /
-      `get_private_conversations`) — plans now show hashed SubPlans instead of a
-      per-row function call. Added `conversations_system`: service-role-only
-      home for facts members must not rewrite (channel_type, private), since
-      anon+authenticated hold UPDATE on conversations.extra. Pattern for future
-      `<table>_system`.
+      `get_restricted_conversations`) — plans now show hashed SubPlans instead
+      of a per-row function call.
+
+- [ ] Index `get_restricted_conversations()` — it scans the caller's org
+      conversations reading `extra->>'is_bot_member'` and `type`, with nothing
+      to support it. Once per query (InitPlan), but a full scan over 22k rows.
+      Partial indexes on the two restricted shapes.
+
+- [ ] Move the RLS helpers out of `public` — every non-trigger function there is
+      published by PostgREST as an RPC, and most are SECURITY DEFINER, so each
+      one is an API surface nobody designed. `get_visible_addresses` was
+      returning every shared inbox in the database that way (fixed by scoping
+      it, but the class remains). A non-exposed schema for helpers removes the
+      whole category; policies would need re-qualifying. Known residue
+      meanwhile: `get_restricted_conversations()` enumerates the ids of
+      conversations in your own orgs that you may NOT read — count and uuids of
+      colleagues' private DMs, no content.
+
+- [ ] `organizations_addresses` is keyed `(organization_id, address)` while
+      `contacts_addresses` is keyed `(organization_id, service, address)`, so a
+      conversation's `service` can disagree with the account it hangs off — a
+      `local` conversation anchored to a WhatsApp number is accepted today.
+      Widening the key would let the conversations FK carry service too.
+
+- [ ] Members' lists still show deleted agents — the SELECT policies keep them
+      readable on purpose (message authorship, roster names), so the filtering
+      belongs to the readers: UI member lists, and anything that ever counts
+      seats.
+
+- [ ] API-key-created `local` conversations are invisible orphans — the insert
+      policy admits `anon`, but the participant trigger needs `auth.uid()`, so
+      the row lands with no participants and no one can ever see it. Either drop
+      `anon` from the policy or give the keyless path a `channel`.
 
 - [ ] Uniform connection ownership — whatsapp/instagram already resolve the
       newest connected row, so reconnecting from another org steals the

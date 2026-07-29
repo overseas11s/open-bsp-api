@@ -19,6 +19,9 @@ begin
     return query select organization_id from public.agents
     where
       user_id = auth.uid()
+    -- A deleted agent is a former member: this is what makes marking the row
+    -- revoke access rather than merely rename it.
+    and deleted_at is null
     and (
       extra->'invitation' is null
       or extra->'invitation'->>'status' = 'accepted'
@@ -171,4 +174,20 @@ begin
       and extra is not distinct from p_extra
   );
 end;
+$$;
+-- The caller's own agent rows, across every org they belong to. A user has at
+-- most one agent per organization (agents_organization_id_user_id_key), so
+-- this is "which agent am I here". Set-returning for the same reason as the
+-- visibility helpers: `agent_id in (select …)` is an InitPlan evaluated once.
+--
+-- Empty for API keys — they authenticate without auth.uid() and are nobody in
+-- particular, so no policy branch that means "my own row" can ever match one.
+create function public.get_own_agents() returns setof uuid
+language sql
+stable
+security definer
+set search_path to ''
+as $$
+  select a.id from public.agents a
+  where a.user_id = auth.uid() and a.deleted_at is null;
 $$;

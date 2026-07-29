@@ -10,6 +10,7 @@ import type {
   OutgoingMessage,
 } from "./message_types.ts";
 import type { IncomingStatus, OutgoingStatus } from "./status_types.ts";
+import type { ConversationType } from "./conversation_types.ts";
 import type {
   AIAgentExtra,
   ContactAddressExtra,
@@ -53,12 +54,15 @@ export type Database = MergeDeep<
         };
         conversations: {
           Row: {
+            type: ConversationType | null;
             extra: ConversationExtra | null;
           };
           Insert: {
+            type?: ConversationType;
             extra?: ConversationExtra;
           };
           Update: {
+            type?: ConversationType;
             extra?: ConversationExtra;
           };
         };

@@ -30,6 +30,7 @@ export type {
   OutgoingStatus,
   WebhookStatus,
 } from "./types/status_types.ts";
+export type { ConversationType } from "./types/conversation_types.ts";
 export type {
   AudioMessage,
   ButtonMessage,

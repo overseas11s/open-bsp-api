@@ -10,7 +10,7 @@ using (
   organization_id in (
     select public.get_authorized_orgs('member')
   )
-  -- Account rule, minus conversations whose override says private; or
+  -- Account rule, minus the restricted set; or
   -- participation. All three subqueries are InitPlans (evaluated once, then
   -- hash-probed per row). See 04-02_visibility_helpers.sql.
   and (
@@ -18,7 +18,7 @@ using (
       (organization_id, organization_address) in (
         select v.organization_id, v.address from public.get_visible_addresses() v
       )
-      and conversation_id not in (select public.get_private_conversations())
+      and conversation_id not in (select public.get_restricted_conversations())
     )
     or conversation_id in (select public.get_participant_conversations())
   )
@@ -34,7 +34,7 @@ with check (
   organization_id in (
     select public.get_authorized_orgs('member')
   )
-  -- Account rule, minus conversations whose override says private; or
+  -- Account rule, minus the restricted set; or
   -- participation. All three subqueries are InitPlans (evaluated once, then
   -- hash-probed per row). See 04-02_visibility_helpers.sql.
   and (
@@ -42,7 +42,7 @@ with check (
       (organization_id, organization_address) in (
         select v.organization_id, v.address from public.get_visible_addresses() v
       )
-      and conversation_id not in (select public.get_private_conversations())
+      and conversation_id not in (select public.get_restricted_conversations())
     )
     or conversation_id in (select public.get_participant_conversations())
   )

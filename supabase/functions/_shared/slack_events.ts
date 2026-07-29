@@ -3,12 +3,12 @@
 // reaches the deployed bundle — it exists so the COMPILER decides which
 // fields each event has, instead of a human reading docs from memory.
 //
-// Why this file exists: the webhook used to model every event as one flat
-// type with every field optional. That made two wrong readings type-check
-// cleanly — taking `channel_type` off the top level of a reaction (it lives
-// under `item`), and feeding a member_joined `channel_type` into the
-// message-event mapper (different vocabulary entirely). A discriminated
-// union makes both of those compile errors.
+// A discriminated union, not one flat type with every field optional: the
+// events differ in ways a human reading docs gets wrong. `channel_type` sits
+// under `item` on a reaction but at the top level on a message, and
+// member_joined reports it in a different vocabulary again. Modelled flat,
+// each of those confusions type-checks; modelled as a union, each is a
+// compile error.
 import type {
   AppUninstalledEvent,
   ChannelArchiveEvent,
@@ -21,6 +21,7 @@ import type {
   TokensRevokedEvent,
   UserChangeEvent,
 } from "@slack/types";
+import type { ConversationType } from "./types/conversation_types.ts";
 
 /**
  * Message events — the ONE payload here not taken from `@slack/types`, on
@@ -117,9 +118,6 @@ export type SlackEnvelope = {
   event?: SubscribedEvent;
 };
 
-/** How OpenBSP records it, on conversations.extra.channel_type. */
-export type ChannelType = "im" | "mpim" | "private_channel" | "public_channel";
-
 /**
  * Authoritative classification, from a channel object (conversations.info,
  * users.conversations). The only source that always distinguishes public
@@ -130,14 +128,14 @@ export function channelTypeFromChannel(channel: {
   is_im?: boolean;
   is_mpim?: boolean;
   is_private?: boolean;
-}): ChannelType {
+}): ConversationType {
   return channel.is_im
-    ? "im"
+    ? "direct"
     : channel.is_mpim
-    ? "mpim"
+    ? "multiple"
     : channel.is_private
-    ? "private_channel"
-    : "public_channel";
+    ? "group"
+    : "channel";
 }
 
 /**
@@ -150,16 +148,16 @@ export function channelTypeFromChannel(channel: {
  */
 export function channelTypeFromMessageEvent(
   channel_type: SlackMessageEvent["channel_type"],
-): ChannelType | undefined {
+): ConversationType | undefined {
   switch (channel_type) {
     case "channel":
-      return "public_channel";
+      return "channel";
     case "group":
-      return "private_channel";
+      return "group";
     case "im":
-      return "im";
+      return "direct";
     case "mpim":
-      return "mpim";
+      return "multiple";
     default:
       return undefined;
   }

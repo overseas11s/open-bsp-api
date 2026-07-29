@@ -583,6 +583,7 @@ export type Database = {
         Row: {
           ai: boolean
           created_at: string
+          deleted_at: string | null
           extra: Json | null
           id: string
           name: string
@@ -594,6 +595,7 @@ export type Database = {
         Insert: {
           ai: boolean
           created_at?: string
+          deleted_at?: string | null
           extra?: Json | null
           id?: string
           name: string
@@ -605,6 +607,7 @@ export type Database = {
         Update: {
           ai?: boolean
           created_at?: string
+          deleted_at?: string | null
           extra?: Json | null
           id?: string
           name?: string
@@ -750,7 +753,7 @@ export type Database = {
       conversations: {
         Row: {
           contact_address: string | null
-          conversation_address: string | null
+          conversation_address: string
           created_at: string
           extra: Json | null
           id: string
@@ -758,12 +761,12 @@ export type Database = {
           organization_address: string
           organization_id: string
           service: Database["public"]["Enums"]["service"]
-          status: string
+          type: string | null
           updated_at: string
         }
         Insert: {
           contact_address?: string | null
-          conversation_address?: string | null
+          conversation_address: string
           created_at?: string
           extra?: Json | null
           id?: string
@@ -771,12 +774,12 @@ export type Database = {
           organization_address: string
           organization_id: string
           service: Database["public"]["Enums"]["service"]
-          status?: string
+          type?: string | null
           updated_at?: string
         }
         Update: {
           contact_address?: string | null
-          conversation_address?: string | null
+          conversation_address?: string
           created_at?: string
           extra?: Json | null
           id?: string
@@ -784,7 +787,7 @@ export type Database = {
           organization_address?: string
           organization_id?: string
           service?: Database["public"]["Enums"]["service"]
-          status?: string
+          type?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -842,17 +845,17 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "conversations_agents_agent_id_fkey"
-            columns: ["agent_id"]
+            columns: ["organization_id", "agent_id"]
             isOneToOne: false
             referencedRelation: "agents"
-            referencedColumns: ["id"]
+            referencedColumns: ["organization_id", "id"]
           },
           {
             foreignKeyName: "conversations_agents_conversation_id_fkey"
-            columns: ["conversation_id"]
+            columns: ["organization_id", "conversation_id"]
             isOneToOne: false
             referencedRelation: "conversations"
-            referencedColumns: ["id"]
+            referencedColumns: ["organization_id", "id"]
           },
           {
             foreignKeyName: "conversations_agents_organization_address_fkey"
@@ -863,51 +866,6 @@ export type Database = {
           },
           {
             foreignKeyName: "conversations_agents_organization_id_fkey"
-            columns: ["organization_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      conversations_system: {
-        Row: {
-          channel_type: string | null
-          conversation_id: string
-          created_at: string
-          extra: Json | null
-          organization_id: string
-          private: boolean
-          updated_at: string
-        }
-        Insert: {
-          channel_type?: string | null
-          conversation_id: string
-          created_at?: string
-          extra?: Json | null
-          organization_id: string
-          private?: boolean
-          updated_at?: string
-        }
-        Update: {
-          channel_type?: string | null
-          conversation_id?: string
-          created_at?: string
-          extra?: Json | null
-          organization_id?: string
-          private?: boolean
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "conversations_system_conversation_id_fkey"
-            columns: ["conversation_id"]
-            isOneToOne: true
-            referencedRelation: "conversations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "conversations_system_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -1167,41 +1125,6 @@ export type Database = {
           },
         ]
       }
-      quick_replies: {
-        Row: {
-          content: string
-          created_at: string
-          id: string
-          name: string
-          organization_id: string
-          updated_at: string
-        }
-        Insert: {
-          content: string
-          created_at?: string
-          id?: string
-          name: string
-          organization_id: string
-          updated_at?: string
-        }
-        Update: {
-          content?: string
-          created_at?: string
-          id?: string
-          name?: string
-          organization_id?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "quick_replies_organization_id_fkey"
-            columns: ["organization_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       webhooks: {
         Row: {
           created_at: string
@@ -1272,8 +1195,9 @@ export type Database = {
         Args: { role?: Database["public"]["Enums"]["role"] }
         Returns: string[]
       }
+      get_own_agents: { Args: never; Returns: string[] }
       get_participant_conversations: { Args: never; Returns: string[] }
-      get_private_conversations: { Args: never; Returns: string[] }
+      get_restricted_conversations: { Args: never; Returns: string[] }
       get_visible_addresses: {
         Args: never
         Returns: {
@@ -1292,12 +1216,7 @@ export type Database = {
         Returns: Json
       }
       is_conversation_visible: {
-        Args: {
-          conv_addr: string
-          conv_id: string
-          conv_org: string
-          conv_service: Database["public"]["Enums"]["service"]
-        }
+        Args: { conv_addr: string; conv_id: string; conv_org: string }
         Returns: boolean
       }
       is_media_visible: { Args: { object_name: string }; Returns: boolean }

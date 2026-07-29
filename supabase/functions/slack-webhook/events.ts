@@ -42,13 +42,13 @@ import type {
   UserChangeEvent,
 } from "@slack/types";
 import {
-  type ChannelType,
   channelTypeFromChannel,
   channelTypeFromMessageEvent,
   type SlackEnvelope,
   type SlackFile,
   type SlackMessageEvent,
 } from "../_shared/slack_events.ts";
+import type { ConversationType } from "../_shared/types/conversation_types.ts";
 
 export type { SlackEnvelope };
 
@@ -172,28 +172,43 @@ async function anyWorkspaceToken(ctx: Ctx): Promise<string | null> {
 }
 
 /**
- * Records system-controlled facts on conversations_system. Deliberately NOT
- * conversations.extra: authenticated AND anon hold UPDATE on conversations,
- * so anything visibility depends on would be member-writable there.
+ * Records ingestor-owned facts on a conversation.
  *
- * Omitting `private` leaves it at its default of true — which is what every
- * Slack conversation needs while the anchor it hangs off is ownerless (that
- * anchor is the bot's, i.e. a shared inbox, so without the override a
- * member's DM would be org-wide). Pass false only where the bot is actually
- * present: its membership is what makes a container org-wide.
+ * `extra` is safe for these even though it is a public bag, because RLS grants
+ * no API role UPDATE on conversations for any service but `local` — the
+ * policy is what keeps members out, so the facts visibility depends on can sit
+ * beside cosmetic ones. Edge functions use the service role, which the policy
+ * does not apply to.
+ *
+ * Omitting `is_bot_member` leaves whatever is stored; absent means false, and
+ * false means not shared with the org. Set it true only where the bot is
+ * actually present — its membership is what makes a Slack container org-wide,
+ * since the anchor these all hang off is ownerless.
  */
-async function setSystemFacts(
+async function setChannelFacts(
   ctx: Ctx,
   conversation_id: string,
-  facts: { channel_type?: ChannelType; private?: boolean },
+  facts: { is_bot_member?: boolean; channel_archived?: boolean },
+): Promise<void> {
+  // `extra` is deep-merged by the set_extra trigger, so this patches the named
+  // keys and leaves the rest.
+  await ctx.client
+    .from("conversations")
+    .update({ extra: facts })
+    .eq("id", conversation_id)
+    .throwOnError();
+}
+
+/** The channel's shape, which lives in a column of its own. */
+async function setConversationType(
+  ctx: Ctx,
+  conversation_id: string,
+  type: ConversationType,
 ): Promise<void> {
   await ctx.client
-    .from("conversations_system")
-    .upsert({
-      conversation_id,
-      organization_id: ctx.organization_id,
-      ...facts,
-    }, { onConflict: "conversation_id" })
+    .from("conversations")
+    .update({ type })
+    .eq("id", conversation_id)
     .throwOnError();
 }
 
@@ -218,42 +233,42 @@ function botIsAuthorized(
 async function ensureConversation(
   ctx: Ctx,
   channel: string,
-  channel_type?: ChannelType,
+  channel_type?: ConversationType,
 ): Promise<string> {
   const { data: existing } = await ctx.client
     .from("conversations")
-    .select("id, conversations_system(channel_type)")
+    .select("id, type")
     .eq("organization_id", ctx.organization_id)
     .eq("organization_address", ctx.team)
     .eq("conversation_address", channel)
     .eq("service", "slack")
-    .eq("status", "active")
-    .order("created_at", { ascending: false })
-    .limit(1)
     .maybeSingle()
     .throwOnError();
 
   if (existing) {
     // Backfill a classification the creating event could not supply (a
     // reaction or a member_joined arriving before any message). Without this
-    // the gap is sticky: channel_type stays absent forever, because every
-    // later event short-circuits on the existing row.
-    const system = existing.conversations_system as unknown as
-      | { channel_type: string | null }
-      | { channel_type: string | null }[]
-      | null;
-    const known = Array.isArray(system) ? system[0] : system;
-
-    if (!known?.channel_type) {
+    // the gap is sticky: `type` stays null forever, because every later event
+    // short-circuits on the existing row. This is the reason the column has no
+    // default for slack — a default would make "unknown" indistinguishable
+    // from "direct" and the row would never self-heal.
+    if (!existing.type) {
       const resolved = channel_type ?? await resolveChannelType(ctx, channel);
 
-      await setSystemFacts(ctx, existing.id, { channel_type: resolved });
+      if (resolved) await setConversationType(ctx, existing.id, resolved);
     }
 
     return existing.id;
   }
 
   const resolved = channel_type ?? await resolveChannelType(ctx, channel);
+
+  // Needed before the insert: is_bot_member is decided by whether the bot is
+  // one of the installs this event reached, which is what a bot-reachable
+  // container looks like on first contact.
+  const authorizations =
+    (await eventAuthorizations(ctx.envelope.event_context ?? "")) ??
+      ctx.envelope.authorizations ?? [];
 
   const { data: created } = await ctx.client
     .from("conversations")
@@ -262,24 +277,17 @@ async function ensureConversation(
       service: "slack" as const,
       organization_address: ctx.team,
       conversation_address: channel,
+      type: resolved,
+      // Always written, including false: absent means not shared, and every
+      // Slack conversation hangs off the ownerless anchor, so leaving it out
+      // would be trusting a default we do not want to depend on.
+      extra: {
+        is_bot_member: botIsAuthorized(ctx, authorizations),
+      },
     })
     .select("id")
     .single()
     .throwOnError();
-
-  const authorizations =
-    (await eventAuthorizations(ctx.envelope.event_context ?? "")) ??
-      ctx.envelope.authorizations ?? [];
-
-  // Always write the row, even when the kind is unknown: absent means "no
-  // override", and this conversation hangs off the ownerless anchor, so
-  // absent would make it org-wide. private is false only when the bot is one
-  // of the installs this event reached — that is what a bot-reachable
-  // container looks like on first contact.
-  await setSystemFacts(ctx, created.id, {
-    channel_type: resolved,
-    private: !botIsAuthorized(ctx, authorizations),
-  });
 
   for (const auth of authorizations) {
     if (auth.is_bot || !auth.user_id) continue;
@@ -312,7 +320,7 @@ async function ensureConversation(
 async function resolveChannelType(
   ctx: Ctx,
   channel: string,
-): Promise<ChannelType | undefined> {
+): Promise<ConversationType | undefined> {
   const token = await anyWorkspaceToken(ctx);
   if (!token) return undefined;
 
@@ -639,7 +647,7 @@ async function onMemberJoined(
   if (event.user === ctx.bot_user_id) {
     const conversation_id = await ensureConversation(ctx, channel);
 
-    await setSystemFacts(ctx, conversation_id, { private: false });
+    await setChannelFacts(ctx, conversation_id, { is_bot_member: true });
 
     return;
   }
@@ -689,7 +697,7 @@ async function onMemberLeft(
   // here the container is member-gated again — anyone who could only see it
   // through the bot loses it, which is the point.
   if (isBot) {
-    await setSystemFacts(ctx, conversation.id, { private: true });
+    await setChannelFacts(ctx, conversation.id, { is_bot_member: false });
 
     return;
   }
@@ -729,7 +737,9 @@ async function onChannelArchive(
   await ctx.client
     .from("conversations")
     .update({
-      status: event.type === "channel_archive" ? "archived" : "active",
+      // channel_archived, not archived: the latter is a UI preference a member
+      // sets on their own view, and extra is one namespace.
+      extra: { channel_archived: event.type === "channel_archive" },
     })
     .eq("organization_id", ctx.organization_id)
     .eq("service", "slack")

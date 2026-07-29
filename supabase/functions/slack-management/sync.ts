@@ -12,10 +12,7 @@ import {
   slackPaginate,
   type SlackUser,
 } from "../_shared/slack.ts";
-import {
-  type ChannelType,
-  channelTypeFromChannel,
-} from "../_shared/slack_events.ts";
+import { channelTypeFromChannel } from "../_shared/slack_events.ts";
 
 export type SyncSummary = {
   users: number;
@@ -187,13 +184,10 @@ async function ensureConversation(
     .eq("organization_address", team_id)
     .eq("conversation_address", channel.id)
     .eq("service", "slack")
-    .eq("status", "active")
-    .order("created_at", { ascending: false })
-    .limit(1)
     .maybeSingle()
     .throwOnError();
 
-  const channel_type = channelTypeFromChannel(channel);
+  const type = channelTypeFromChannel(channel);
 
   // DMs are titled by the counterpart; channels by their Slack name.
   const counterpart = channel.user ? usersById.get(channel.user) : undefined;
@@ -210,14 +204,14 @@ async function ensureConversation(
 
   if (existing) {
     // Keep name/metadata fresh (channel renames, topic changes). extra is
-    // merged by the set_extra trigger.
+    // merged by the set_extra trigger. `type` is authoritative here —
+    // users.conversations returns is_im/is_mpim/is_private — so it overwrites
+    // rather than backfills, unlike the webhook's null-only path.
     await client
       .from("conversations")
-      .update({ name, extra })
+      .update({ name, type, extra })
       .eq("id", existing.id)
       .throwOnError();
-
-    await setChannelType(client, organization_id, existing.id, channel_type);
 
     return existing.id;
   }
@@ -230,56 +224,25 @@ async function ensureConversation(
       organization_address: team_id,
       conversation_address: channel.id,
       name,
+      type,
       extra,
     })
     .select("id")
     .single()
     .throwOnError();
 
-  await setChannelType(client, organization_id, created.id, channel_type);
-
   return created.id;
-}
-
-/**
- * channel_type lives on conversations_system, not conversations.extra:
- * authenticated AND anon hold UPDATE on conversations, so anything
- * visibility depends on must sit in a table only the service role can write.
- * Here the value is always authoritative — users.conversations returns
- * is_im/is_mpim/is_private — so it overwrites rather than backfills.
- *
- * The row must exist even when nothing else needs recording: `private`
- * defaults to true, and without the row the conversation inherits the
- * ownerless workspace anchor and would be visible org-wide. `private` is
- * never passed here, so a re-sync cannot undo the bot path's decision.
- */
-async function setChannelType(
-  client: SupabaseClient,
-  organization_id: string,
-  conversation_id: string,
-  channel_type: ChannelType,
-  isPrivate?: boolean,
-): Promise<void> {
-  await client
-    .from("conversations_system")
-    .upsert({
-      conversation_id,
-      organization_id,
-      channel_type,
-      ...(isPrivate === undefined ? {} : { private: isPrivate }),
-    }, { onConflict: "conversation_id" })
-    .throwOnError();
 }
 
 /**
  * Bot-install counterpart to syncConnection. The bot is the shared-inbox
  * connection, so everything it is in is org-wide: this enumerates the bot's
- * own containers and clears `private` on them. Without it, a bot added to
+ * own containers and marks them is_bot_member. Without it, a bot added to
  * channels OpenBSP already knows about would stay invisible until someone
  * re-invited it (member_joined_channel is the only other signal).
  *
  * No conversations_agents rows are written — that table maps conversations to
- * members, and the bot is nobody's agent. Reach comes from `private = false`.
+ * members, and the bot is nobody's agent. Reach comes from is_bot_member.
  */
 export async function syncBotConnection(
   client: SupabaseClient,
@@ -319,13 +282,16 @@ export async function syncBotConnection(
         usersById,
       });
 
-      await setChannelType(
-        client,
-        organization_id,
-        conversation_id,
-        channelTypeFromChannel(channel),
-        false,
-      );
+      // These are the BOT's own containers, so the bot is in every one of
+      // them by construction — which is exactly what makes them org-wide.
+      // ensureConversation already wrote name/type/extra; this adds the one
+      // fact only the bot path knows. The member sync never writes it, so a
+      // re-sync from a member cannot undo this.
+      await client
+        .from("conversations")
+        .update({ extra: { is_bot_member: true } })
+        .eq("id", conversation_id)
+        .throwOnError();
 
       summary.conversations += 1;
     }

@@ -29,6 +29,47 @@ pushing to `main` deploys to PROD.
 - **API keys see shared-inbox content only.** They authenticate without a user,
   so they cannot satisfy the ownership or participation rules.
 
+- **`conversations` is read-only for members on every service but `local`.** A
+  conversation mirrors state that lives on someone else's server, so members
+  hold SELECT and nothing else: no INSERT, UPDATE or DELETE for whatsapp,
+  whatsapp-web, instagram or slack. Renaming, archiving or pinning through
+  `conversations.extra` now fails silently (zero rows) — those are moving to
+  `conversations_agents.extra`, where they are per-member anyway. Starting a
+  conversation still works: insert the first MESSAGE and the row is minted for
+  you.
+
+- **`conversations.status` and the `quick_replies` table are dropped.** `status`
+  held `'active'` in all 22k production rows — it was the session dimension, and
+  sessions were never used. Its one real writer recorded Slack channel
+  archiving, now `extra.channel_archived`. `quick_replies` had no rows and no
+  reader.
+
+- **`conversations_system` is dropped**, one DEV deploy after it was added. Its
+  facts moved back into `conversations.extra` (`is_bot_member`,
+  `channel_archived`) and into the new `type` column. The separate table existed
+  because the old policy granted members UPDATE on every column; now the policy
+  grants no UPDATE at all, so there is nothing to protect against. Never reached
+  PROD.
+
+- **Duplicate conversations are merged.** Production accumulated 136 duplicated
+  `(organization, service, account, peer)` keys over 529 rows under
+  lookup-then-insert. The oldest row wins, messages and membership are repointed
+  at it, and a unique index now prevents recurrence.
+
+- **Conversations are no longer paused by a human reply.** The 12-hour AI-agent
+  pause (`conversations.extra.paused`, written by a trigger on every
+  account-authored message) is gone, along with the trigger. Pausing an AI agent
+  is a feature of an agentic platform; this is a communication layer.
+
+- **Deleting an agent no longer removes the row.** `DELETE` marks
+  `agents.deleted_at` and is cancelled, because an agent is named by things that
+  outlive their membership: message authorship, and the conversation address of
+  every local direct/multiple they are in. Every access helper skips a marked
+  agent, so access is revoked exactly as before — but readers that assume a
+  removed member disappears from `agents` need to filter `deleted_at is null`
+  themselves. Deleting an organization still removes them outright, and erasing
+  the auth user now nulls `agents.user_id` instead of cascading.
+
 - **Deleting a connected account deletes its data.**
   `conversations.organization_address` became `on delete cascade`, so removing
   an `organizations_addresses` row now takes its conversations and messages with
@@ -40,13 +81,23 @@ pushing to `main` deploys to PROD.
   (`xoxb`), or both. The bot is the shared-inbox connection — everything it is
   in is org-wide, private channels included — while members' own conversations
   stay private. See the README.
-- `conversations_agents` — per-member visibility, mirroring membership on the
-  external service.
-- `conversations_system` — system-controlled facts a member must not rewrite
-  (`channel_type`, `private`). Only the service role can write it;
-  `conversations.extra` is writable by any caller who can see the conversation,
-  which is why these cannot live there. Establishes the `<table>_system` pattern
-  for other tables with a public `extra`.
+- `conversations_agents` — who is in a conversation. On mirror services it
+  reflects membership of the external container and grants visibility; on
+  `local` members manage it themselves (join, add, kick).
+- `conversations.type` — the channel's shape in one cross-service vocabulary:
+  `direct` (1:1), `multiple` (Slack mpim, Teams group chat), `group` (WhatsApp
+  group, Slack/Teams private channel), `channel` (Slack public channel),
+  `broadcast` (WhatsApp broadcast list). `text` with a check constraint rather
+  than an enum, because RLS references it and `db diff` cannot add a value to an
+  enum in that position.
+- Internal conversations on the `local` service. `direct` and `multiple` are
+  identified by their roster: create one by setting `conversation_address` to
+  the participating agent ids (`'A:B'`, `'A:B:C'`, any order) and the trigger
+  sorts them, derives the type from the count, and writes the membership. The
+  canonical form is the identity, so the unique index is what answers "does this
+  conversation already exist between these people", and neither can be joined or
+  left afterwards. `group` and `channel` are named containers instead: state the
+  type, omit the address, and manage membership through `conversations_agents`.
 - `organizations_addresses.agent_id` — an account's owner. Null means a shared
   inbox; set means personal.
 - `slack-app-manifest.yaml` — the Slack app's configuration, in version control
@@ -54,6 +105,17 @@ pushing to `main` deploys to PROD.
 
 ### Changed
 
+- `ConversationType` moved to `_shared/types/conversation_types.ts` and is
+  re-exported from `_shared/supabase.ts`; the `conversations.type` column is
+  typed with it, so it is no longer Slack-specific.
+- `is_conversation_visible()` takes three arguments instead of four — the
+  `conv_service` parameter was never read. It is an internal RLS helper, but a
+  `public` function, so PostgREST publishes it as an RPC: an external caller
+  passing four arguments now gets a 404.
+- `get_visible_addresses()` only returns accounts in organizations the caller
+  belongs to. No policy changes behaviour (all of them already filtered by
+  organization), but the function is RPC-callable and was not filtering on its
+  own.
 - `messages.sender_address` replaces `direction` as the source of truth: it is a
   contact reference, or null when the account itself spoke. `direction` and
   `contact_address` are still written and still derived, so existing readers

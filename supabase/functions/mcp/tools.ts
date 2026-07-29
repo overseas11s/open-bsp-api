@@ -197,7 +197,6 @@ export async function listConversations(params: ListConversationsParams) {
       contact_address:contacts_addresses(*, contact:contacts(*))
     `)
     .in("id", conversationIds)
-    .eq("status", "active")
     .neq("messages.direction", "internal")
     .order("timestamp", { referencedTable: "messages", ascending: false })
     .limit(10, { referencedTable: "messages" })

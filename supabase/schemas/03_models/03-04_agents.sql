@@ -6,13 +6,32 @@ create table public.agents (
   picture text,
   ai boolean not null,
   extra jsonb,
+  -- Set by prevent_last_owner_deletion, which cancels the DELETE and marks the
+  -- row instead: an agent outlives their membership, because messages name
+  -- them as author and local rosters name them in the conversation ADDRESS
+  -- itself. Every access helper (04-01, 04-02) skips a marked agent, so this
+  -- revokes exactly what a delete would. Members cannot clear it —
+  -- preserve_agent_deletion.
+  deleted_at timestamp with time zone,
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null
 );
 
+-- Partial, so removing someone and adding them again is possible: a deleted
+-- agent keeps their user_id (the only link that can answer "is this the same
+-- person", and an opaque uuid is not the PII worth scrubbing), which a total
+-- constraint would read as a duplicate forever.
+create unique index agents_organization_id_user_id_key
+on public.agents
+using btree (organization_id, user_id)
+where deleted_at is null;
+
+-- Same purpose as the equivalent on conversations: a target for child tables
+-- that must pin an agent AND its organization in one reference, so a row can
+-- never name an agent from another tenant.
 alter table only public.agents
-add constraint agents_organization_id_user_id_key
-unique (organization_id, user_id);
+add constraint agents_organization_id_id_key
+unique (organization_id, id);
 
 alter table only public.agents
 add constraint agents_pkey
@@ -24,11 +43,16 @@ foreign key (organization_id)
 references public.organizations(id)
 on delete cascade;
 
+-- `set null`, not `cascade`: erasing the auth user must not erase the agent.
+-- The person goes; the agent row stays, unclaimed, so message authorship and
+-- the rosters that name them in a conversation address remain intact. A
+-- cascade could not complete anyway, since deleting an agent row is cancelled
+-- in favour of marking it.
 alter table only public.agents
 add constraint agents_user_id_fkey
 foreign key (user_id)
 references auth.users(id)
-on delete cascade;
+on delete set null;
 
 -- Declared here (not in 03-01) because agents is created after
 -- organizations_addresses. `restrict`: deleting a connected account is an
@@ -45,6 +69,20 @@ on delete restrict;
 create index agents_user_id_idx
 on public.agents
 using btree (user_id);
+
+-- `z_` so it sorts after prevent_last_owner_deletion_before_delete: the guard
+-- must get its chance to raise before the delete turns into a mark.
+create trigger z_mark_deleted
+before delete
+on public.agents
+for each row
+execute function public.mark_agent_deleted();
+
+create trigger preserve_deletion
+before update
+on public.agents
+for each row
+execute function public.preserve_agent_deletion();
 
 create trigger set_extra
 before update

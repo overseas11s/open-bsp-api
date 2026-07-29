@@ -1050,16 +1050,21 @@ This event-driven flow ensures that each component is decoupled and scalable.
   number for WhatsApp). An address can exist unlinked to any contact, so
   addresses and contacts have independent lifecycles — the sync triggers in this
   table manage linking/unlinking and orphan cleanup.
-- **conversations**: A conversation between an `organization_address` and a
-  `contact_address` (or `group_address`) for a given service; belongs to an
-  `organization`.
+- **conversations**: A channel between an `organization_address` and a
+  `conversation_address` (a phone number, a WhatsApp group JID, a Slack channel
+  id) for a given service; belongs to an `organization`. Its `type` says which
+  shape it is: `direct`, `multiple`, `group` or `channel`. Except on the
+  internal `local` service, it mirrors state owned by the external service and
+  is read-only to members.
 - **messages**: Messages within a `conversation`; carry direction, type,
   payload, status, and timestamps.
 - **agents**: Human or AI agents for an `organization`; optionally linked to an
   auth `user`.
 - **api_keys**: API access keys scoped to an `organization`.
 - **webhooks**: Outbound webhook subscriptions per `organization`.
-- **quick_replies**: Reusable response snippets scoped to an `organization`.
+- **conversations_agents**: Who is in a `conversation` — membership mirrored
+  from the external service, or managed by members on the internal `local` chat.
+  Also carries each member's own state for the conversation.
 - **logs**: Application-level log entries (errors, warnings) written by Edge
   Functions.
 

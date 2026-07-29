@@ -46,7 +46,6 @@ export type AgentTool = {
   config?: any;
 };
 
-const PAUSED_CONV_WINDOW = 12 * 60 * 60 * 1000; // 12 hours
 const MESSAGES_TIME_LIMIT = 7 * 24 * 60 * 60 * 1000; // 7 days
 const MESSAGES_QUANTITY_LIMIT = 50;
 const RESPONSE_DELAY_SECS = 3; // 3 seconds
@@ -186,17 +185,6 @@ Deno.serve(async (req) => {
     log.info(
       `Conversation ${conv.id} does not correspond to an authorized contact. Skipping response.`,
     );
-
-    return new Response("ok", { headers: corsHeaders });
-  }
-
-  // CHECK IF CONVERSATION IS PAUSED
-
-  if (
-    conv.extra.paused &&
-    +new Date(conv.extra.paused) > +new Date() - PAUSED_CONV_WINDOW
-  ) {
-    log.info(`Conversation ${conv.id} is paused. Skipping response.`);
 
     return new Response("ok", { headers: corsHeaders });
   }
