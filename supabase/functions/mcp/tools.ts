@@ -276,7 +276,6 @@ export async function fetchConversation(params: FetchConversationParams) {
     .eq("contact_address", contactPhone)
     .eq("organization_address", account.address)
     .eq("service", "whatsapp")
-    .eq("status", "active")
     .neq("messages.direction", "internal")
     .order("created_at", { ascending: false })
     .order("timestamp", { ascending: false, referencedTable: "messages" })

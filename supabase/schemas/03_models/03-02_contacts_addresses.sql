@@ -89,13 +89,6 @@ when (
 )
 execute function public.cleanup_unlinked_address_if_empty();
 
--- Supports the BSUID bridge lookup and phone-based search, mirroring the
--- organizations_addresses phone_number index.
-create index contacts_addresses_phone_number_idx
-on public.contacts_addresses
-using btree ((extra->>'phone_number'))
-where service = 'whatsapp';
-
 -- Lookup by BSUID (e.g. the user_id_update handler matching extra.bsuid).
 create index contacts_addresses_bsuid_idx
 on public.contacts_addresses

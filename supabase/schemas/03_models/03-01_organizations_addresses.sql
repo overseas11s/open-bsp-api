@@ -15,9 +15,17 @@ create table public.organizations_addresses (
   updated_at timestamp with time zone default now() not null
 );
 
+-- service is part of the key, exactly as in contacts_addresses: one canonical
+-- address string can name accounts on two services (bare phone digits are both
+-- a 'whatsapp' and a 'whatsapp-web' account), and they are separate
+-- connections with separate tokens.
+--
+-- It is also what lets every dependent FK carry service, so a child row can
+-- never claim a service its account does not have — a `local` conversation
+-- anchored to a WhatsApp business number used to be accepted.
 alter table only public.organizations_addresses
 add constraint organizations_addresses_pkey
-primary key (organization_id, address);
+primary key (organization_id, service, address);
 
 alter table only public.organizations_addresses
 add constraint organizations_addresses_organization_id_fkey

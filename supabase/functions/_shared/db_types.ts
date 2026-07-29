@@ -800,10 +800,10 @@ export type Database = {
           },
           {
             foreignKeyName: "conversations_organization_address_fkey"
-            columns: ["organization_id", "organization_address"]
+            columns: ["organization_id", "service", "organization_address"]
             isOneToOne: false
             referencedRelation: "organizations_addresses"
-            referencedColumns: ["organization_id", "address"]
+            referencedColumns: ["organization_id", "service", "address"]
           },
           {
             foreignKeyName: "conversations_organization_id_fkey"
@@ -822,6 +822,7 @@ export type Database = {
           extra: Json | null
           organization_address: string
           organization_id: string
+          service: Database["public"]["Enums"]["service"]
           updated_at: string
         }
         Insert: {
@@ -831,6 +832,7 @@ export type Database = {
           extra?: Json | null
           organization_address: string
           organization_id: string
+          service: Database["public"]["Enums"]["service"]
           updated_at?: string
         }
         Update: {
@@ -840,6 +842,7 @@ export type Database = {
           extra?: Json | null
           organization_address?: string
           organization_id?: string
+          service?: Database["public"]["Enums"]["service"]
           updated_at?: string
         }
         Relationships: [
@@ -859,10 +862,10 @@ export type Database = {
           },
           {
             foreignKeyName: "conversations_agents_organization_address_fkey"
-            columns: ["organization_id", "organization_address"]
+            columns: ["organization_id", "service", "organization_address"]
             isOneToOne: false
             referencedRelation: "organizations_addresses"
-            referencedColumns: ["organization_id", "address"]
+            referencedColumns: ["organization_id", "service", "address"]
           },
           {
             foreignKeyName: "conversations_agents_organization_id_fkey"
@@ -910,10 +913,10 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "logs_organization_address_fkey"
-            columns: ["organization_id", "organization_address"]
+            columns: ["organization_id", "service", "organization_address"]
             isOneToOne: false
             referencedRelation: "organizations_addresses"
-            referencedColumns: ["organization_id", "address"]
+            referencedColumns: ["organization_id", "service", "address"]
           },
           {
             foreignKeyName: "logs_organization_id_fkey"
@@ -1203,6 +1206,7 @@ export type Database = {
         Returns: {
           address: string
           organization_id: string
+          service: Database["public"]["Enums"]["service"]
         }[]
       }
       init_data: {
@@ -1216,7 +1220,12 @@ export type Database = {
         Returns: Json
       }
       is_conversation_visible: {
-        Args: { conv_addr: string; conv_id: string; conv_org: string }
+        Args: {
+          conv_addr: string
+          conv_id: string
+          conv_org: string
+          conv_service: Database["public"]["Enums"]["service"]
+        }
         Returns: boolean
       }
       is_media_visible: { Args: { object_name: string }; Returns: boolean }

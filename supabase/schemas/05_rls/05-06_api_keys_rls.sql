@@ -10,7 +10,10 @@ on public.api_keys
 for select
 to authenticated, anon
 using (
-  key = current_setting('request.headers', true)::json->>'api-key'
+  -- Subselect so the header is read once per query (an InitPlan) instead of
+  -- once per row. It still evaluates before the OR's right side, so the
+  -- short-circuit above holds.
+  key = (select current_setting('request.headers', true)::json->>'api-key')
   or organization_id in (
     select public.get_authorized_orgs('owner')
   )

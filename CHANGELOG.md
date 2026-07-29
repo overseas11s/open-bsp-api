@@ -11,6 +11,35 @@ pushing to `main` deploys to PROD.
 
 ### Breaking
 
+- **`organizations_addresses` is keyed `(organization_id, service, address)`.**
+  It was `(organization_id, address)`, which let a conversation's `service`
+  disagree with the account it hangs off — production carried three WhatsApp
+  conversations anchored to a whatsapp-web account. The three FKs that reference
+  an account (`conversations`, `conversations_agents`, `logs`) now carry
+  `service` too, so the mismatch is unrepresentable. Consequences:
+
+  - The same address string can now exist twice under different services (bare
+    phone digits as both a `whatsapp` and a `whatsapp-web` account), so any
+    reader that looks an account up by `(organization_id, address)` alone can
+    match the wrong row. Add `service` to those lookups.
+  - `get_visible_addresses()` returns `(organization_id, service, address)`
+    rather than a pair. It is a published RPC. (`is_conversation_visible()`
+    keeps its `(conv_id, conv_org, conv_addr,
+    conv_service)` signature —
+    `conv_service` was briefly dropped earlier in this release as unread, and is
+    now load-bearing again.)
+  - `logs` gains a check: state a `service` whenever you state an
+    `organization_address`.
+  - The migration deletes the three mismatched conversations and their six
+    messages. Each shadowed a live bridge conversation with the same peer (67
+    and 75 messages), which is untouched.
+
+- **`conversations.status` is gone** (dropped by the preceding migration in this
+  release; archived state lives in `extra.channel_archived`). The MCP
+  `fetchConversation` tool was still filtering on it and would have returned a
+  PostgREST 400 — fixed here. Check any other client that filters conversations
+  by `status`.
+
 - **`conversations.group_address` and `messages.group_address` are dropped.**
   Both were in real use for WhatsApp group keying (116k messages in production
   carried one). The migration copies the value into the new
@@ -103,15 +132,42 @@ pushing to `main` deploys to PROD.
 - `slack-app-manifest.yaml` — the Slack app's configuration, in version control
   rather than only in the dashboard.
 
+### Performance
+
+Measured against production, so the numbers are the pre-change cost.
+
+- **`messages(service, created_at desc)` added.**
+  `where service = ? and
+  created_at >= ? order by created_at desc` — an
+  incremental polling pattern — was the single most expensive statement in the
+  database at 10,608 calls, 174 ms mean, ~86 GB read from disk, because nothing
+  indexed `created_at` and every call sorted the table.
+- **`conversations_identity_idx` reordered** to
+  `(organization_id,
+  organization_address, service, conversation_address)`.
+  Uniqueness is unchanged; the leading columns now also serve the account FK
+  (that cascade took 5.4 s on a sequential scan) and the "conversations on this
+  account" lookup, which was reading 539M tuples across 279k scans through a
+  single-column index.
+- **Four redundant indexes dropped:** `conversations_organization_address_idx`
+  and `conversations_organization_id_idx` (both prefixes of the reordered
+  identity index), `messages_organization_id_idx` (a prefix of
+  `messages_org_conv_timestamp_idx`), and `contacts_addresses_phone_number_idx`
+  (0 scans over the counter's whole lifetime, 1.4 MB of write tax on a table
+  taking ~65k inserts).
+- **RLS InitPlan wrapping** on the three `agents` self-policies and the
+  `api_keys` owner read: `auth.uid()` and `current_setting('request.headers')`
+  are evaluated once per query instead of once per row.
+
 ### Changed
 
+- `conversations_agents.service` is derived by a trigger, never written by a
+  client. It exists so the account FK can name a whole key; a membership's
+  service is always its conversation's, so stating it could only ever introduce
+  a disagreement.
 - `ConversationType` moved to `_shared/types/conversation_types.ts` and is
   re-exported from `_shared/supabase.ts`; the `conversations.type` column is
   typed with it, so it is no longer Slack-specific.
-- `is_conversation_visible()` takes three arguments instead of four — the
-  `conv_service` parameter was never read. It is an internal RLS helper, but a
-  `public` function, so PostgREST publishes it as an RPC: an external caller
-  passing four arguments now gets a 404.
 - `get_visible_addresses()` only returns accounts in organizations the caller
   belongs to. No policy changes behaviour (all of them already filtered by
   organization), but the function is RPC-callable and was not filtering on its

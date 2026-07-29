@@ -442,6 +442,34 @@ begin
 end;
 $$;
 
+-- Derives conversations_agents.service from the conversation the row is in.
+--
+-- The column exists so the reference to organizations_addresses can name a
+-- whole account key, not because a membership decides its own service — a
+-- Slack membership stems from a Slack identity, and the conversation already
+-- says so. Deriving it keeps the two from ever disagreeing, and keeps `service`
+-- out of the write contract: members insert their own rows through 05-12, and
+-- asking a client to restate a value it cannot choose only invites a wrong one.
+-- The FK checks (organization_id, service, organization_address) against a real
+-- account either way, so a stated service could pass that check while naming a
+-- different service than the conversation's.
+--
+-- Runs on UPDATE too: conversation_id is not immutable here, so a row moved to
+-- another conversation re-derives instead of keeping the old service.
+create function public.set_conversation_agent_service() returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  select c.service into new.service
+  from public.conversations c
+  where c.id = new.conversation_id;
+
+  return new;
+end;
+$$;
+
 -- Writes the participants of a `local` conversation.
 --
 -- `local` is the one service where a member creates the conversation directly
@@ -473,6 +501,8 @@ security definer
 set search_path = ''
 as $$
 begin
+  -- service is omitted on purpose: set_conversation_agent_service derives it,
+  -- here as for every other writer.
   insert into public.conversations_agents (
     organization_id,
     organization_address,

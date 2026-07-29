@@ -44,11 +44,15 @@
 -- either.
 
 -- Accounts whose conversations the caller can see, as (organization_id,
--- address) pairs: the org's shared inboxes, plus personal accounts the
--- caller owns. Conversations under these are visible unless their override
+-- service, address) triples: the org's shared inboxes, plus personal accounts
+-- the caller owns. Conversations under these are visible unless their override
 -- says private.
+--
+-- service is in the tuple because it is in the account key: the same address
+-- string can name a shared 'whatsapp' account and a personal 'whatsapp-web'
+-- one, and matching on the pair alone would let either decide for both.
 create function public.get_visible_addresses()
-returns table (organization_id uuid, address text)
+returns table (organization_id uuid, service public.service, address text)
 language sql
 stable
 security definer
@@ -65,14 +69,14 @@ as $$
   -- where nothing wraps it and RLS does not apply. Without the filter that
   -- call answers with every shared inbox in the DATABASE — other tenants' org
   -- ids and account addresses, WhatsApp business numbers among them.
-  select oa.organization_id, oa.address
+  select oa.organization_id, oa.service, oa.address
   from public.organizations_addresses oa
   where oa.agent_id is null
     and oa.organization_id in (select public.get_authorized_orgs('member'))
   union
   -- Personal accounts owned by the caller (their Slack identity, a personal
   -- WhatsApp/mailbox).
-  select oa.organization_id, oa.address
+  select oa.organization_id, oa.service, oa.address
   from public.organizations_addresses oa
   join public.agents a on a.id = oa.agent_id
   where a.user_id = auth.uid() and a.deleted_at is null;
@@ -134,7 +138,8 @@ $$;
 create function public.is_conversation_visible(
   conv_id uuid,
   conv_org uuid,
-  conv_addr text
+  conv_addr text,
+  conv_service public.service
 ) returns boolean
 language sql
 stable
@@ -143,8 +148,9 @@ set search_path to ''
 as $$
   select
     (
-      (conv_org, conv_addr) in (
-        select v.organization_id, v.address from public.get_visible_addresses() v
+      (conv_org, conv_service, conv_addr) in (
+        select v.organization_id, v.service, v.address
+        from public.get_visible_addresses() v
       )
       and conv_id not in (select public.get_restricted_conversations())
     )
@@ -167,7 +173,7 @@ security definer
 set search_path to ''
 as $$
   with refs as (
-    select m.conversation_id, m.organization_id, m.organization_address
+    select m.conversation_id, m.organization_id, m.service, m.organization_address
     from public.messages m
     where m.content->'file'->>'uri' = 'internal://media/' || object_name
   )
@@ -176,7 +182,7 @@ as $$
     or exists (
       select 1 from refs r
       where public.is_conversation_visible(
-        r.conversation_id, r.organization_id, r.organization_address
+        r.conversation_id, r.organization_id, r.organization_address, r.service
       )
     );
 $$;

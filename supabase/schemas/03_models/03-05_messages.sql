@@ -79,17 +79,31 @@ add constraint messages_content_schema check (
   )
 ) not valid;
 
-create index messages_organization_id_idx
-on public.messages
-using btree (organization_id);
+-- No plain (organization_id) index: messages_org_conv_timestamp_idx below
+-- leads with that column, so it serves the organization cascade too.
 
+-- Needed on its own even though the composite below mentions the column: that
+-- one leads with organization_id, so it cannot answer a conversation-only
+-- probe — which is what the cascade from conversations runs.
 create index messages_conversation_id_idx
 on public.messages
 using btree (conversation_id);
 
+-- Serves the two per-minute sweeps (dispatch-outgoing-pending-messages,
+-- preprocess-pending-messages), which scan a rolling 12-hour window by
+-- timestamp. 728k scans, and the reason this index is not merely the
+-- less-used sibling of created_at below.
 create index messages_timestamp_idx
 on public.messages
 using btree (timestamp);
+
+-- Incremental polling by API clients: `where service = ? and created_at >= ?
+-- order by created_at desc`. Unindexed, that was the single most expensive
+-- statement in production — 10,608 calls, 174 ms mean, ~86 GB read from disk —
+-- because nothing indexed created_at at all and every call sorted the table.
+create index messages_service_created_at_idx
+on public.messages
+using btree (service, created_at desc);
 
 create index messages_updated_at_idx
 on public.messages

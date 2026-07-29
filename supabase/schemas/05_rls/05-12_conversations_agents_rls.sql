@@ -92,8 +92,9 @@ with check (
     select 1 from public.conversations c
     where c.id = conversation_id
       and c.organization_id in (select public.get_authorized_orgs('member'))
-      and (c.organization_id, c.organization_address) in (
-        select v.organization_id, v.address from public.get_visible_addresses() v
+      and (c.organization_id, c.service, c.organization_address) in (
+        select v.organization_id, v.service, v.address
+        from public.get_visible_addresses() v
       )
       and c.id not in (select public.get_restricted_conversations())
   )

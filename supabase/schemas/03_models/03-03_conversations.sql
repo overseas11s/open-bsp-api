@@ -99,16 +99,38 @@ check (
 -- This is what removes the lookup-then-insert race: every writer can upsert on
 -- this key instead of select-then-maybe-insert. Production accumulated 136
 -- duplicated keys under the old shape.
+--
+-- Column ORDER is load-bearing, though uniqueness does not depend on it. With
+-- organization_address second, the leading columns also serve:
+--
+--   (organization_id, organization_address, service)  the account FK below, so
+--       deleting a connected account cascades by index scan (that cascade took
+--       5.4 s against a sequential scan). Equality quals match the leading
+--       columns in any order, so the FK's own column order need not agree.
+--   (organization_id, organization_address)  "every conversation on this
+--       account", the hottest lookup there is — 279k scans reading 539M tuples
+--       through a single-column index, ~1.9k rows per probe on a shared number
+--       carrying 13k conversations.
+--   (organization_id)  the organization cascade.
+--
+-- Those three single-column indexes are therefore absent by design: this one
+-- answers all of them, and each extra index is write cost on an insert path
+-- that already runs a trigger cascade.
 create unique index conversations_identity_idx
 on public.conversations
-using btree (organization_id, service, organization_address, conversation_address);
+using btree (organization_id, organization_address, service, conversation_address);
 
 -- Cascade (decided 2026-07-24): deleting a connected account deletes its
 -- conversations, and messages cascade via conversations_id in turn.
+--
+-- service is in the reference so a conversation cannot name an account that
+-- exists under a DIFFERENT service — the account rule in 04-02 reads visibility
+-- off organizations_addresses.agent_id, so a mismatched anchor would decide who
+-- sees the conversation.
 alter table only public.conversations
 add constraint conversations_organization_address_fkey
-foreign key (organization_id, organization_address)
-references public.organizations_addresses(organization_id, address)
+foreign key (organization_id, service, organization_address)
+references public.organizations_addresses(organization_id, service, address)
 on delete cascade;
 
 alter table only public.conversations
@@ -117,17 +139,9 @@ foreign key (organization_id, service, contact_address)
 references public.contacts_addresses(organization_id, service, address)
 on delete no action;
 
-create index conversations_organization_id_idx
-on public.conversations
-using btree (organization_id);
-
 create index conversations_updated_at_idx
 on public.conversations
 using btree (updated_at);
-
-create index conversations_organization_address_idx
-on public.conversations
-using btree (organization_address);
 
 create index conversations_contact_address_idx
 on public.conversations

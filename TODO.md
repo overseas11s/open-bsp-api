@@ -100,12 +100,6 @@ Monetization (medium-term)
       conversations in your own orgs that you may NOT read — count and uuids of
       colleagues' private DMs, no content.
 
-- [ ] `organizations_addresses` is keyed `(organization_id, address)` while
-      `contacts_addresses` is keyed `(organization_id, service, address)`, so a
-      conversation's `service` can disagree with the account it hangs off — a
-      `local` conversation anchored to a WhatsApp number is accepted today.
-      Widening the key would let the conversations FK carry service too.
-
 - [ ] Members' lists still show deleted agents — the SELECT policies keep them
       readable on purpose (message authorship, roster names), so the filtering
       belongs to the readers: UI member lists, and anything that ever counts

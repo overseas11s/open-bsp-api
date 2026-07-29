@@ -15,8 +15,9 @@ using (
   -- hash-probed per row). See 04-02_visibility_helpers.sql.
   and (
     (
-      (organization_id, organization_address) in (
-        select v.organization_id, v.address from public.get_visible_addresses() v
+      (organization_id, service, organization_address) in (
+        select v.organization_id, v.service, v.address
+        from public.get_visible_addresses() v
       )
       and conversation_id not in (select public.get_restricted_conversations())
     )
@@ -39,8 +40,9 @@ with check (
   -- hash-probed per row). See 04-02_visibility_helpers.sql.
   and (
     (
-      (organization_id, organization_address) in (
-        select v.organization_id, v.address from public.get_visible_addresses() v
+      (organization_id, service, organization_address) in (
+        select v.organization_id, v.service, v.address
+        from public.get_visible_addresses() v
       )
       and conversation_id not in (select public.get_restricted_conversations())
     )

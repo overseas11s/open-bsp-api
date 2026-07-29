@@ -5,7 +5,7 @@ on public.agents
 for select
 to authenticated
 using (
-  user_id = auth.uid()
+  user_id = (select auth.uid())
 );
 
 create policy "members can update themselves"
@@ -13,7 +13,7 @@ on public.agents
 for update
 to authenticated
 using (
-  user_id = auth.uid()
+  user_id = (select auth.uid())
 )
 with check (
   public.member_self_update_rules(id, user_id, organization_id, ai, extra)
@@ -24,7 +24,7 @@ on public.agents
 for delete
 to authenticated
 using (
-  user_id = auth.uid()
+  user_id = (select auth.uid())
 );
 
 create policy "members can read their orgs agents"
