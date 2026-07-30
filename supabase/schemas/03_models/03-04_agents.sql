@@ -4,7 +4,20 @@ create table public.agents (
   id uuid default gen_random_uuid() not null,
   name text not null,
   picture text,
-  ai boolean not null,
+  -- Access control, and only that. It used to live in `extra.role`, sharing
+  -- the key with an unrelated meaning: on AI agents that same key holds a
+  -- persona — "presupuestador metalúrgico", "Recopiladora de datos" — which
+  -- get_authorized_orgs quietly resolved to `member` through its else branch.
+  -- Harmless only because AI agents have no user_id to match on. Typed, the
+  -- ambiguity cannot be written down; the personas stay in `extra`, where
+  -- they belong next to the prompt.
+  role public.role default 'member'::public.role not null,
+  -- Deprecated: AI agents are on their way out and nothing reads this except
+  -- agent-client, which uses it to pick the agent to run. No policy, helper or
+  -- trigger consults it any more — membership rules are about people, and
+  -- `user_id is not null` is the honest test for that. Defaulted so writers
+  -- need not mention it.
+  ai boolean default false not null,
   extra jsonb,
   -- Set by prevent_last_owner_deletion, which cancels the DELETE and marks the
   -- row instead: an agent outlives their membership, because messages name
@@ -17,14 +30,17 @@ create table public.agents (
   updated_at timestamp with time zone default now() not null
 );
 
--- Partial, so removing someone and adding them again is possible: a deleted
--- agent keeps their user_id (the only link that can answer "is this the same
--- person", and an opaque uuid is not the PII worth scrubbing), which a total
--- constraint would read as a duplicate forever.
+-- TOTAL, not partial on deleted_at: one row per person per organization,
+-- forever. A former member keeps their user_id, so re-adding them has to find
+-- that row and revive it — which is what accept_invitation's ON CONFLICT does,
+-- and it can only conflict against an index that still contains the marked
+-- row. Minting a second agent instead would strand their message authorship
+-- and every local DM keyed on the old id.
+--
+-- Nulls do not collide in Postgres, so AI agents (no user_id) are unaffected.
 create unique index agents_organization_id_user_id_key
 on public.agents
-using btree (organization_id, user_id)
-where deleted_at is null;
+using btree (organization_id, user_id);
 
 -- Same purpose as the equivalent on conversations: a target for child tables
 -- that must pin an agent AND its organization in one reference, so a row can
@@ -99,34 +115,23 @@ on public.agents
 for each row
 execute function public.moddatetime('updated_at');
 
-create trigger handle_new_invitation
-before insert
-on public.agents
-for each row
-when (
-  new.ai = false
-  and new.extra->'invitation' is not null
-)
-execute function public.lookup_user_id_by_email_before_insert_on_agents();
-
--- should execute after set_extra
-create trigger z_enforce_invitation_status_flow
-before update
-on public.agents
-for each row
-when (
-  new.ai = false
-)
-execute function public.enforce_invitation_status_flow();
-
+-- `user_id is not null` where these used to say `ai = false`: an owner is a
+-- person, and having an auth identity is what makes one. It says the same
+-- thing without consulting a column that is on its way out, and it keeps
+-- saying it for an AI agent that somehow carries the owner role.
+--
+-- `old.deleted_at is null` on the update guard: a marked agent is already not
+-- an owner as far as every access helper is concerned, so reviving one at a
+-- lower role is not a demotion the last-owner rule has any business refusing.
 create trigger prevent_last_owner_deletion_before_update
 before update
 on public.agents
 for each row
 when (
-  new.ai = false
-  and old.extra->>'role' = 'owner'
-  and new.extra->>'role' != 'owner'
+  old.user_id is not null
+  and old.deleted_at is null
+  and old.role = 'owner'
+  and new.role <> 'owner'
 )
 execute function public.prevent_last_owner_deletion();
 
@@ -135,7 +140,7 @@ before delete
 on public.agents
 for each row
 when (
-  old.ai = false
-  and old.extra->>'role' = 'owner'
+  old.user_id is not null
+  and old.role = 'owner'
 )
 execute function public.prevent_last_owner_deletion();

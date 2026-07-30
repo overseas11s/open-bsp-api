@@ -1,81 +1,3 @@
-create function public.lookup_user_id_by_email_before_insert_on_agents() returns trigger
-language plpgsql
-security definer -- bypass RLS to access auth.users
-set search_path to ''
-as $$
-begin
-  -- Check if an invitation already exists for this email in this org (case-insensitive)
-  if exists (
-    select 1
-    from public.agents
-    where organization_id = new.organization_id
-      and lower(extra->'invitation'->>'email') = lower(new.extra->'invitation'->>'email')
-  ) then
-    raise exception 'An invitation for this email already exists in this organization';
-  end if;
-
-  -- Associate user_id to the agent (auth.users.email is normalized to lowercase
-  -- by Supabase, but compare case-insensitively in case the invitation email was
-  -- entered with mixed case)
-  select id into new.user_id
-  from auth.users
-  where lower(email) = lower(new.extra->'invitation'->>'email');
-
-  return new;
-end;
-$$;
-
--- Auto-associate user_id to agents when new user signs up
-create function public.lookup_agents_by_email_after_insert_on_auth_users() returns trigger
-language plpgsql
-security definer -- bypass RLS to update agents table
-set search_path to ''
-as $$
-begin
-  -- Update invitations matching the new user's email (case-insensitive)
-  update public.agents
-  set user_id = new.id
-  where user_id is null
-    and lower(extra->'invitation'->>'email') = lower(new.email);
-
-  return new;
-end;
-$$;
-
--- Enforce invitation status flow: pending → accepted/rejected only
-create function public.enforce_invitation_status_flow() returns trigger
-language plpgsql
-set search_path to ''
-as $$
-begin
-  if old.extra->'invitation' is not null then -- invitation
-    if new.extra->'invitation' is null then -- invitation removed
-      raise exception 'Cannot remove invitation';
-    end if;
-
-    if new.extra->'invitation'->>'email' is distinct from old.extra->'invitation'->>'email' then
-      raise exception 'Cannot change invitation email';
-    end if;
-
-    if old.extra->'invitation'->>'status' is distinct from new.extra->'invitation'->>'status' then
-      if old.extra->'invitation'->>'status' <> 'pending' then
-        raise exception 'Cannot change invitation status from %', old.extra->'invitation'->>'status';
-      end if;
-    
-      if new.extra->'invitation'->>'status' not in ('accepted', 'rejected') then
-        raise exception 'Invitation status can only be changed to accepted or rejected';
-      end if;
-    end if;
-  else -- no invitation; original owner
-    if new.extra->'invitation' is not null then
-      raise exception 'Cannot add invitation to existing agent';
-    end if;
-  end if;
-
-  return new;
-end;
-$$;
-
 -- Create local address and owner agent after org creation
 create function public.after_insert_on_organizations() returns trigger
 language plpgsql
@@ -94,8 +16,8 @@ begin
     from auth.users
     where id = user_id;
 
-    insert into public.agents (organization_id, user_id, name, ai, extra)
-    values (new.id, user_id, user_name, false, '{"role": "owner"}');
+    insert into public.agents (organization_id, user_id, name, role)
+    values (new.id, user_id, user_name, 'owner');
   end if;
 
   return new;
@@ -164,21 +86,55 @@ begin
     return old;
   end if;
 
-  if old.extra->>'role' = 'owner' then
+  if old.role = 'owner' then
+    -- No invitation clause any more: an agents row IS a member now, so there
+    -- is no such thing as an owner who has not replied yet. `user_id is not
+    -- null` stands in for the old `ai = false` — an owner is a person.
     select count(*) into owner_count
     from public.agents
     where organization_id = old.organization_id
-      and extra->>'role' = 'owner'
-      and (
-        extra->>'invitation' is null
-        or extra->'invitation'->>'status' = 'accepted'
-      )
+      and role = 'owner'
+      and user_id is not null
       and deleted_at is null
       and id <> old.id;
 
     if owner_count = 0 then
       raise exception 'Cannot delete the last owner of an organization';
     end if;
+  end if;
+
+  return old;
+end;
+$$;
+
+-- The other end of the same rule. agents_user_id_fkey is `on delete set null`,
+-- so erasing an auth user leaves their agent rows standing but unclaimed —
+-- and an unclaimed row stops counting as an owner, which can quietly leave an
+-- organization with none. Guarding the agents table cannot catch it: nothing
+-- is deleted there, a column is merely nulled.
+--
+-- So the refusal belongs here. An owner has to hand the organization over,
+-- leave it, or delete it before their account can go. There is no account
+-- deletion flow in the product today; this exists so that whichever one gets
+-- built — including a click in the Supabase dashboard — cannot take an
+-- organization down with it.
+create function public.prevent_owner_user_deletion() returns trigger
+language plpgsql
+security definer -- bypass RLS: no policy applies to a user being erased
+set search_path to ''
+as $$
+declare
+  owned int;
+begin
+  select count(*) into owned
+  from public.agents
+  where user_id = old.id
+    and role = 'owner'
+    and deleted_at is null;
+
+  if owned > 0 then
+    raise exception 'Cannot delete a user who still owns % organization(s)', owned
+      using hint = 'transfer ownership, leave, or delete the organization first';
   end if;
 
   return old;

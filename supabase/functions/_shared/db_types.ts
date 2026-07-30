@@ -589,11 +589,12 @@ export type Database = {
           name: string
           organization_id: string
           picture: string | null
+          role: Database["public"]["Enums"]["role"]
           updated_at: string
           user_id: string | null
         }
         Insert: {
-          ai: boolean
+          ai?: boolean
           created_at?: string
           deleted_at?: string | null
           extra?: Json | null
@@ -601,6 +602,7 @@ export type Database = {
           name: string
           organization_id: string
           picture?: string | null
+          role?: Database["public"]["Enums"]["role"]
           updated_at?: string
           user_id?: string | null
         }
@@ -613,6 +615,7 @@ export type Database = {
           name?: string
           organization_id?: string
           picture?: string | null
+          role?: Database["public"]["Enums"]["role"]
           updated_at?: string
           user_id?: string | null
         }
@@ -869,6 +872,54 @@ export type Database = {
           },
           {
             foreignKeyName: "conversations_agents_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invitations: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          invited_by: string | null
+          organization_id: string
+          role: Database["public"]["Enums"]["role"]
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          invited_by?: string | null
+          organization_id: string
+          role?: Database["public"]["Enums"]["role"]
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          invited_by?: string | null
+          organization_id?: string
+          role?: Database["public"]["Enums"]["role"]
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invitations_invited_by_fkey"
+            columns: ["invited_by"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invitations_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -1174,10 +1225,20 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      agent_update_by_owner_rules: {
+      accept_invitation: { Args: { invitation_id: string }; Returns: string }
+      agent_identity_and_role_unchanged: {
         Args: {
           p_ai: boolean
-          p_extra: Json
+          p_id: string
+          p_organization_id: string
+          p_role: Database["public"]["Enums"]["role"]
+          p_user_id: string
+        }
+        Returns: boolean
+      }
+      agent_identity_unchanged: {
+        Args: {
+          p_ai: boolean
           p_id: string
           p_organization_id: string
           p_user_id: string
@@ -1229,16 +1290,6 @@ export type Database = {
         Returns: boolean
       }
       is_media_visible: { Args: { object_name: string }; Returns: boolean }
-      member_self_update_rules: {
-        Args: {
-          p_ai: boolean
-          p_extra: Json
-          p_id: string
-          p_organization_id: string
-          p_user_id: string
-        }
-        Returns: boolean
-      }
       merge_update_jsonb: {
         Args: { object: Json; path: string[]; target: Json }
         Returns: Json
@@ -1247,6 +1298,7 @@ export type Database = {
         Args: { p_id: string; p_name: string }
         Returns: boolean
       }
+      reject_invitation: { Args: { invitation_id: string }; Returns: undefined }
     }
     Enums: {
       direction: "incoming" | "outgoing" | "internal"

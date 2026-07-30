@@ -1,4 +1,3 @@
-import type { Database as DatabaseGenerated } from "../db_types.ts";
 import type { SQLToolConfig } from "../../agent-client/tools/sql.ts";
 
 //===================================
@@ -217,16 +216,18 @@ export type ToolConfig =
   | LocalSpecialToolConfig
   | LocalMCPToolConfig;
 
-export type HumanAgentExtra = {
-  role: DatabaseGenerated["public"]["Enums"]["role"];
-  invitation?: {
-    organization_name: string;
-    email: string;
-    status: "pending" | "accepted" | "rejected";
-  };
-};
+/**
+ * A human agent has no defined `extra` any more: `role` is a column
+ * (access control, typed), and invitations are their own table.
+ */
 
 export type AIAgentExtra = {
+  /**
+   * The persona — "presupuestador metalúrgico" — not an access-control role.
+   * It shared the `extra.role` key with the human one until that moved to a
+   * column; this is the half that stayed.
+   */
+  role?: string;
   mode?: "active" | "draft" | "inactive";
   description?: string;
   api_url?: string;

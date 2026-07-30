@@ -97,7 +97,6 @@ export type {
   ContactAddressExtra,
   ContactExtra,
   ConversationExtra,
-  HumanAgentExtra,
   InstagramContactAddressExtra,
   InstagramOrganizationAddressExtra,
   LocalCustomToolConfig,

@@ -117,7 +117,14 @@ on public.conversations_agents
 for insert
 to authenticated
 with check (
-  exists (
+  -- "You can only add people to rooms you are in" — stated, not implied. An
+  -- insert consults with-check alone, and permissive with-checks OR across
+  -- every policy on the command, so a clause that only describes the SHAPE of
+  -- the target conversation grants that shape to everyone: without this line
+  -- any authenticated user could add anyone to any local group in the
+  -- database, other tenants' included.
+  conversation_id in (select public.get_participant_conversations())
+  and exists (
     select 1 from public.conversations c
     where c.id = conversation_id
       and c.service = 'local'::public.service
@@ -141,7 +148,13 @@ using (
     where c.id = conversation_id
       and c.service = 'local'::public.service
       and (
-        c.type = 'group'
+        -- Kicking: same rule as adding, and for the same reason — shape alone
+        -- would let anyone empty any group in the database.
+        (
+          c.type = 'group'
+          and conversation_id in (select public.get_participant_conversations())
+        )
+        -- Leaving: naming your own agent is the authority.
         or (
           c.type = 'channel'
           and agent_id in (select public.get_own_agents())
