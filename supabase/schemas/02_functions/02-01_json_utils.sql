@@ -1,21 +1,27 @@
--- Behavior Summary:
--- | Value Type             | Behavior                               | Merges? |
+-- JSON merge-patch, RFC 7396 (the same algorithm as SQLite's json_patch), with
+-- one deliberate deviation: a non-object patch at the ROOT is ignored instead
+-- of replacing the document. The RFC would let `extra = '"x"'` or `extra =
+-- 'null'` blow the whole column away; these columns are always objects, and a
+-- caller who writes a scalar into one has made a mistake, not a request.
+--
+-- | Patch value            | Behavior                               | Merges? |
 -- |------------------------|----------------------------------------|---------|
--- | null                   | Replaces entire target with null       | NO      |
+-- | null                   | REMOVES the key (root null: ignored)   | n/a     |
 -- | {} (empty object)      | Recursively merges (no-op if empty)    | YES     |
 -- | Non-empty object       | Recursively merges nested keys         | YES     |
+-- | Array                  | Replaces value at path                 | NO      |
 -- | String/Number/Boolean  | Replaces value at path                 | NO      |
 --
--- Note: Arrays are currently REPLACED, not merged (array merge logic is commented out).
--- Example: {"tags": ["a", "b"]} + update tags to ["c"] = {"tags": ["c"]}
-
+-- Arrays are opaque, exactly as in the RFC: {"tags":["a","b"]} patched with
+-- {"tags":["c"]} yields {"tags":["c"]}. Element-wise array merge is not
+-- expressible in merge-patch at all — there is no way to say "leave element 1
+-- alone" — which is the same reason null has to mean removal.
 create function public.merge_update_jsonb(target jsonb, path text[], object jsonb) returns jsonb
 language plpgsql
 immutable
 set search_path to ''
 as $$
 declare
-  i int;
   key text;
   value jsonb;
 begin
@@ -24,8 +30,6 @@ begin
   end if;
 
   case jsonb_typeof(object) -- object, array, string, number, boolean, and null
-    when null then
-      target := null;
     when 'object' then
       if jsonb_typeof(target #> path) <> 'object' or target #> path is null then
           if cardinality(path) = 0 then
@@ -38,17 +42,19 @@ begin
       for key, value in select * from jsonb_each(object) loop
           target := public.merge_update_jsonb(target, array_append(path, key), value);
       end loop;
-    -- when 'array' then
-    --   if jsonb_typeof(target #> path) <> 'array' or target #> path is null then
-    --     target := jsonb_set(target, path, '[]', true);
-    --   end if;
-
-    --   i := 0;
-    --   for value in select * from jsonb_array_elements(object) loop
-    --     target := public.merge_update_jsonb(target, array_append(path, i::text), value);
-    --     i := i + 1;
-    --   end loop;
+    when 'null' then
+      -- The RFC's removal sentinel. Guarded rather than left to `#-`, which
+      -- happens to return the target unchanged for an empty path: a
+      -- root-level null falls under the deviation above and is ignored, and
+      -- that should be stated, not inherited from an operator's edge case.
+      if cardinality(path) > 0 then
+        target := target #- path;
+      end if;
     else
+      -- Scalars and arrays replace. At the root this is where the deviation
+      -- takes effect: jsonb_set with a zero-length path returns the target
+      -- untouched, so the patch is dropped. A SQL NULL patch lands here too
+      -- and propagates, jsonb_set being strict.
       target := jsonb_set(target, path, object, true);
   end case;
 
