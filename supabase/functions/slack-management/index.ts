@@ -126,7 +126,7 @@ async function getOwnAgent(
     .select("id, organization_id")
     .eq("user_id", user.id)
     .eq("organization_id", organization_id)
-    .eq("ai", false)
+    .is("deleted_at", null)
     .maybeSingle();
 
   if (error || !agent) {

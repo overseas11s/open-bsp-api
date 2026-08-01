@@ -14,6 +14,11 @@
 - Deleting an agent sets `deleted_at` instead of removing the row.
 - `agents.extra.role` is now the `agents.role` column; AI agents keep their
   free-text persona in `extra.role`.
+- `agents.ai` is dropped — an agent with no `user_id` is an AI agent.
+- `response_delay_seconds` moved from the organization's `extra` to the agent's;
+  `default_agent_id` (organization and conversation) and
+  `authorized_contacts_only` are gone — the oldest active AI agent answers, and
+  never in `local`.
 - Invitations moved to `public.invitations`, keyed by email; answer them with
   the `accept_invitation` / `reject_invitation` RPCs. Inserting an agent with a
   `user_id` is refused — people join by accepting.

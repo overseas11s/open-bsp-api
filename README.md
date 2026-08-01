@@ -684,7 +684,7 @@ Create an organization if you haven't done that already.
 
 ```sql
 insert into public.organizations (name, extra) values
-  ('Default', '{ "response_delay_seconds": 0 }')
+  ('Default', '{}')
 ;
 ```
 
@@ -1074,10 +1074,7 @@ This event-driven flow ensures that each component is decoupled and scalable.
 
 ```ts
 export type OrganizationExtra = {
-  response_delay_seconds?: number; // default: 3
-  welcome_message?: string;
-  authorized_contacts_only?: boolean;
-  default_agent_id?: string;
+  welcome_message?: string; // sent on the first inbound message, AI or not
   media_preprocessing?: {
     mode?: "active" | "inactive";
     model?: "gemini-2.5-pro" | "gemini-2.5-flash"; // default: gemini-2.5-flash
@@ -1098,16 +1095,26 @@ agents.
 
 Roles and privileges
 
-- Owner — full control: manage organizations, manage integrations, invite/remove
-  anyone
-- Admin — operational control: manage conversations, create AI agents
-- Member — standard usage: create conversations, use the chat features
+Set by the `role` column (`agents.role`); only owners may grant one.
+
+- Owner — full control: manage organizations, manage integrations, create
+  agents, invite/remove anyone, grant roles
+- Admin — operational control: manage conversations, edit any agent except its
+  role
+- Member — standard usage: create conversations, use the chat features, edit
+  themselves
+
+An agent with no `user_id` is an AI agent — nobody's membership. It is chosen to
+answer when it is the oldest active one in the organization; AI agents do not
+answer in `local` (team chat).
 
 #### AI
 
 ```ts
 export type AgentExtra = {
   mode?: "active" | "draft" | "inactive";
+  role?: string; // the persona, not access control — that is the `role` column
+  response_delay_seconds?: number; // debounce a burst of messages; default: 3
   description?: string;
   api_url?: "openai" | "anthropic" | "google" | "groq" | string; // default: openai
   api_key?: string; // default: provider env var, i.e. OPENAI_API_KEY

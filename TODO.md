@@ -1,12 +1,8 @@
 # TODO
 
-## Before Product Hunt Launch
+## Billing (long-term)
 
-- [x] Usage, tiers, limits, etc.
-
-## Billing
-
-Core billing (near-term)
+Core billing
 
 - [ ] Renewal cron job — at period end, call change_plan to re-grant balance
       products, rotate current_period_start/end
@@ -15,7 +11,7 @@ Core billing (near-term)
 - [ ] Plan downgrade scheduling — store pending plan change, apply at period end
       instead of immediately
 
-Monetization (medium-term)
+Monetization
 
 - [ ] Invoice generation — aggregate usage + overages from plans_products,
       create invoice + items
@@ -26,46 +22,47 @@ Monetization (medium-term)
 
 - [ ] Thread panel UI in open-bsp-ui — `messages.thread_id` exists but has no
       UI; Slack without threads is broken
+
 - [ ] UI: don't render unechoed Slack sends — a dispatched row has
       sender_address null until the echo fills in the member's Slack user id, so
       other members would briefly see it attributed as their own; hide (or mark
       pending) rows with sender null + status.accepted in Slack conversations
       until the echo lands
-- [ ] Realtime visibility updates — subscribe the UI to `conversations_agents`
-      changes so a newly-visible conversation appears without refresh (needs the
-      table in the realtime publication and possibly `webhook_table`)
-- [x] Token-rotation cron — `refresh-slack-tokens` pg_cron job (every 4h) calls
-      `slack-management/refresh-tokens`; a no-op until rotation is enabled on
-      the Slack app (connections without a refresh_token are skipped; nothing
-      breaks with rotation off — tokens are simply non-expiring). Rotation-on
-      hardening done: a dead refresh token (`invalid_refresh_token` etc.)
-      disconnects the connection inside the shared `ensureFreshToken` (reconnect
-      prompt in the UI), and the webhook's `anyWorkspaceToken` refreshes
-      expiring tokens, falling back to the next connected member
-- [x] Ground Slack client + webhook in official `@slack/web-api` /
-      `@slack/types` (type-only, zero runtime). `slackApi` indexed by method,
-      events a discriminated union. Fixed: `member_joined_channel`'s `C`/`G` was
-      recorded as public_channel, and reactions read `channel_type` at the wrong
-      nesting. Unknown channel types now ask `conversations.info`.
-- [ ] Review API keys — there is user-scoped content now; today API keys only
-      pass the org-wide visibility branch (auth.uid() is null), revisit whether
-      that stays the contract or keys grow a user scope
+
+- [ ] UI: Realtime visibility updates — subscribe the UI to
+      `conversations_agents` changes so a newly-visible conversation appears
+      without refresh (needs the table in the realtime publication and possibly
+      `webhook_table`)
+
 - [ ] Review webhooks — allow more than one table per webhook
+
 - [ ] Review re-syncs — e.g. re-sync since the last message; does a media
       message re-sync overwrite the internal file uri (internal://media/…),
       causing loss/re-upload/content re-extraction?
-- [ ] Offer user-scoped WhatsApp/Instagram connections — the visibility model
-      already supports it (personal address = owner-only, branch 2 of
-      is_conversation_visible); needs management/UI work
-- [x] Storage RLS for user-scoped connections — is_media_visible() on the
-      storage.objects download policy: unreferenced objects stay org-scoped,
-      referenced ones require a visible referencing message (v1 file parts only;
-      v0 legacy media stays org-scoped)
-- [x] Reaction shortcode↔emoji map — `_shared/emoji.ts` generated from
-      iamcal/emoji-data (the dataset Slack uses). Reactions are data-only
-      (`data {action, name, unicode}`, no content.text): Slack fills
-      `data.unicode`, dispatchers map Unicode back to wire names; UIs render
-      from data.unicode with `:name:` fallback for custom emoji
+
+- [ ] Offer user-scoped WhatsApp/Instagram connections
+
+## Deprecated columns (direction, contact_address)
+
+Both columns are still WRITTEN everywhere — the rule is only that nothing new
+should READ them.
+
+- [ ] `internal` has no successor. `sender_address` replaces incoming/outgoing,
+      but nothing in the new addressing says "recorded, never sent". Decide the
+      successor (a content kind outside the dispatch whitelist? an explicit
+      status?) before the column can go.
+
+- [ ] The dispatchers and webhooks still branch on `direction`, and the
+      `MessageRow` union discriminates on it. agent-client and the dispatch cron
+      ask `sender_address` instead; the rest do not.
+
+## AI agents (frozen; on their way out)
+
+- [ ] Which conversations the AI answers is implicit. The trigger arms on
+      `status.pending`, which also means "needs dispatch": WhatsApp/Instagram
+      inbound arms it by omitting `status` and inheriting the column default,
+      Slack stays inert only because its webhook writes `{delivered}`. Nothing
+      states the rule per service, conversation or agent.
 
 ## General
 
@@ -80,25 +77,7 @@ Monetization (medium-term)
       callback fires it unauthenticated. Mark + reap in pg_cron instead of one
       transaction.
 
-- [x] RLS: per-row `is_conversation_visible()` replaced by InitPlan sets
-      (`get_visible_addresses` / `get_participant_conversations` /
-      `get_restricted_conversations`) — plans now show hashed SubPlans instead
-      of a per-row function call.
-
-- [ ] Index `get_restricted_conversations()` — it scans the caller's org
-      conversations reading `extra->>'is_bot_member'` and `type`, with nothing
-      to support it. Once per query (InitPlan), but a full scan over 22k rows.
-      Partial indexes on the two restricted shapes.
-
-- [ ] Move the RLS helpers out of `public` — every non-trigger function there is
-      published by PostgREST as an RPC, and most are SECURITY DEFINER, so each
-      one is an API surface nobody designed. `get_visible_addresses` was
-      returning every shared inbox in the database that way (fixed by scoping
-      it, but the class remains). A non-exposed schema for helpers removes the
-      whole category; policies would need re-qualifying. Known residue
-      meanwhile: `get_restricted_conversations()` enumerates the ids of
-      conversations in your own orgs that you may NOT read — count and uuids of
-      colleagues' private DMs, no content.
+- [ ] Move the RLS helpers out of `public`.
 
 - [ ] Members' lists still show deleted agents — the SELECT policies keep them
       readable on purpose (message authorship, roster names), so the filtering
@@ -117,11 +96,7 @@ Monetization (medium-term)
       is a device login, so several tenants can hold live sessions for one
       number at once. Optional: tenant discrimination in generic-webhook.
 
-- [ ] Improve routing of organization accounts and members
-
 - [ ] Data export / DB dump
-
-- [ ] Langfuse integration
 
 - [ ] Encrypt API keys
 
@@ -139,8 +114,6 @@ Monetization (medium-term)
 - [ ] Respond to all / non-contacts
 
 - [ ] Enhanced privacy (optional, do not store messages from contacts)
-
-- [ ] Coexistence welcome message pauses the conversation
 
 - [x] Revisit whatsapp-management security
 

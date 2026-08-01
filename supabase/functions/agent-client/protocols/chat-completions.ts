@@ -16,6 +16,7 @@ import type {
   ToolEventInfo,
   ToolInfo,
 } from "../../_shared/supabase.ts";
+import { isToolTrace } from "../../_shared/supabase.ts";
 import {
   type AgentProtocolHandler,
   contextHeaders,
@@ -124,7 +125,7 @@ export class ChatCompletionsHandler
     const withoutTools: MessageRow[] = [];
 
     for (const row of messages) {
-      if (row.direction === "internal" && row.content.tool) {
+      if (isToolTrace(row)) {
         const taskId = row.content.task?.id;
 
         if (!taskId) {
@@ -162,7 +163,7 @@ export class ChatCompletionsHandler
     const sorted: MessageRow[] = [];
 
     for (const row of withoutTools) {
-      if (row.direction === "internal" && row.content.tool) {
+      if (isToolTrace(row)) {
         const taskId = row.content.task!.id;
 
         const task = taskMap.get(taskId)!;
@@ -180,7 +181,7 @@ export class ChatCompletionsHandler
 
   private removeOtherAgentsToolMessages(messages: MessageRow[]): MessageRow[] {
     return messages.filter((message) => {
-      if (message.direction === "internal" && message.content.tool) {
+      if (isToolTrace(message)) {
         return message.agent_id === this.context.agent.id;
       }
 
@@ -193,7 +194,7 @@ export class ChatCompletionsHandler
     const pairedToolUseSet = new Set<string>();
 
     for (const message of messages) {
-      if (message.direction === "internal" && message.content.tool) {
+      if (isToolTrace(message)) {
         const toolUseId = message.content.tool.use_id;
 
         if (toolUseSet.has(toolUseId)) {
@@ -205,7 +206,7 @@ export class ChatCompletionsHandler
     }
 
     return messages.filter((message) => {
-      if (message.direction === "internal" && message.content.tool) {
+      if (isToolTrace(message)) {
         return pairedToolUseSet.has(message.content.tool.use_id);
       }
 
@@ -378,8 +379,8 @@ export class ChatCompletionsHandler
       now: dayjs.utc().format("dddd, YYYY-MM-DD HH:mm [UTC]"),
       user: {
         name: this.context.contact?.name,
-        phone: this.context.conversation.contact_address
-          ? "+" + this.context.conversation.contact_address
+        phone: this.context.conversation.conversation_address
+          ? "+" + this.context.conversation.conversation_address
           : undefined,
       },
     };
@@ -648,6 +649,7 @@ export class ChatCompletionsHandler
           organization_id: conversation.organization_id,
           service: conversation.service,
           organization_address: conversation.organization_address,
+          conversation_address: conversation.conversation_address,
           contact_address: conversation.contact_address,
           direction: "outgoing",
           agent_id: agent.id,
@@ -676,6 +678,7 @@ export class ChatCompletionsHandler
           organization_id: conversation.organization_id,
           service: conversation.service,
           organization_address: conversation.organization_address,
+          conversation_address: conversation.conversation_address,
           contact_address: conversation.contact_address,
           direction: "outgoing",
           agent_id: agent.id,
@@ -759,6 +762,7 @@ export class ChatCompletionsHandler
           organization_id: conversation.organization_id,
           service: conversation.service,
           organization_address: conversation.organization_address,
+          conversation_address: conversation.conversation_address,
           contact_address: conversation.contact_address,
           direction: "internal" as const,
           agent_id: agent.id,
@@ -799,6 +803,7 @@ export class ChatCompletionsHandler
             organization_id: conversation.organization_id,
             service: conversation.service,
             organization_address: conversation.organization_address,
+            conversation_address: conversation.conversation_address,
             contact_address: conversation.contact_address,
             direction: "outgoing",
             agent_id: agent.id,

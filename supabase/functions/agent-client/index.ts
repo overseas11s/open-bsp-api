@@ -6,6 +6,7 @@ import {
   createUnsecureClient,
   type DataPart,
   type InternalMessage,
+  isToolTrace,
   type LocalMCPToolConfig,
   type MessageInsert,
   type MessageRow,
@@ -68,6 +69,20 @@ const MEDIA_PREPROCESSING_POLLING_INTERVAL = 5 * 1000; // 5 seconds
  *  agent will get the conversation history in the correct order.
  */
 
+/**
+ * Authorship without the deprecated `direction` column.
+ *
+ * `sender_address` is a contact reference: set when the peer authored the row,
+ * null when the account itself did. `content.tool` marks our own tool traces,
+ * which are recorded but never spoken. Those two answer every question this
+ * function used to ask `direction`.
+ */
+const fromContact = (m: { sender_address: string | null }) =>
+  m.sender_address !== null;
+
+const spokenByUs = (m: { sender_address: string | null; content: unknown }) =>
+  m.sender_address === null && !isToolTrace(m);
+
 function getNewestIncomingMessage(
   incoming: MessageRow,
   messages: MessageRow[],
@@ -75,7 +90,7 @@ function getNewestIncomingMessage(
   const incomingCreatedAt = new Date(incoming.created_at);
 
   const sortedMessages = messages
-    .filter((m) => m.direction === "incoming")
+    .filter(fromContact)
     .filter((m) => new Date(m.created_at) >= incomingCreatedAt)
     .sort((a, b) => {
       const dateA = +new Date(a.created_at);
@@ -167,31 +182,42 @@ Deno.serve(async (req) => {
     }
   }
 
-  // CHECK IF CONTACT IS ALLOWED
+  // NO AI IN TEAM CHAT
+  //
+  // `local` is where colleagues talk to each other. An AI agent answering
+  // there would need trigger rules this codebase does not have — who it
+  // answers, when, and without replying to every message in the room. The
+  // insert trigger cannot reach us here anyway (it arms on sender_address,
+  // and a colleague is not a contact); this makes the rule explicit rather
+  // than a consequence.
 
-  /**
-   * Default behavior: Respond to all contacts.
-   *
-   * When org.extra.authorized_contacts_only is true, only respond to allowed contacts.
-   *
-   * An allowed contact has the contact.extra.allowed field set to true.
-   */
-
-  if (
-    conv.service !== "local" &&
-    org.extra.authorized_contacts_only
-    // TODO: && !contact?.extra?.allowed
-  ) {
-    log.info(
-      `Conversation ${conv.id} does not correspond to an authorized contact. Skipping response.`,
-    );
+  if (conv.service === "local") {
+    log.info(`Conversation ${conv.id} is team chat. Skipping response.`);
 
     return new Response("ok", { headers: corsHeaders });
   }
 
+  // AGENT SELECTION
+  //
+  // The oldest active AI agent in the organization — an AI agent being one
+  // that is nobody's membership (no user_id) and has not been retired
+  // (deleted_at). There is no per-conversation override any more: nothing
+  // could write one, since members hold no UPDATE on conversations outside
+  // `local`.
+  //
+  // Selected before the delay because the delay is now the agent's own.
+
+  const agent = agents
+    .filter((a) =>
+      a.user_id === null && a.deleted_at === null &&
+      a.extra?.mode !== "inactive"
+    )
+    .sort((a, b) => +new Date(a.created_at) - +new Date(b.created_at))
+    .at(0) as AgentRowWithExtra | undefined;
+
   // WAIT FOR A NEWER MESSAGE
 
-  const delay = (org.extra.response_delay_seconds ?? RESPONSE_DELAY_SECS) *
+  const delay = (agent?.extra?.response_delay_seconds ?? RESPONSE_DELAY_SECS) *
     1000;
 
   if (delay > 0) {
@@ -241,11 +267,11 @@ Deno.serve(async (req) => {
   // such row in the window crashed this scan — and with it every later
   // inbound message of the conversation.
   const firstMessageIndex = messages.findLastIndex(
-    ({ direction, content }) =>
-      direction === "incoming" &&
-      content.type === "text" &&
-      typeof content.text === "string" &&
-      content.text.startsWith("/new"),
+    (m) =>
+      fromContact(m) &&
+      m.content.type === "text" &&
+      typeof m.content.text === "string" &&
+      m.content.text.startsWith("/new"),
   );
 
   if (firstMessageIndex > -1) {
@@ -270,18 +296,21 @@ Deno.serve(async (req) => {
   log.info("Contact request", messages.at(-1)?.content);
 
   // WELCOME MESSAGE
-  // Note: The welcome message is affected by allowed contacts. This behavior
-  // differs from WhatsApp, which sends the welcome message to all contacts.
+  //
+  // Stays an organization setting, and stays ahead of the agent check: it
+  // fires on the first contact whether or not the organization has an AI
+  // agent at all, which is how several of them use it.
 
   if (
     org.extra.welcome_message &&
-    messages.every((m) => m.direction !== "outgoing")
+    !messages.some(spokenByUs)
   ) {
     const outgoing: MessageInsert = {
       organization_id: conv.organization_id,
       conversation_id: conv.id,
       service: conv.service,
       organization_address: conv.organization_address,
+      conversation_address: conv.conversation_address,
       contact_address: conv.contact_address,
       direction: "outgoing",
       content: {
@@ -302,58 +331,7 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  // CHECK IF THERE ARE AI AGENTS
-
-  const aiAgents = agents.filter(
-    (agent) => agent.ai,
-  ) as AgentRowWithExtra[];
-
-  if (!aiAgents.length) {
-    log.info(
-      `No AI agents found for conversation ${conv.id}. Skipping response.`,
-    );
-    return new Response("ok", { headers: corsHeaders });
-  }
-
-  // AGENT SELECTION
-
-  let agent: AgentRowWithExtra | null | undefined;
-
-  /* Not featuring multiple agents per conversation by the time being.
-
-  // 1. Find the agent_id of the last message from an AI agent
-
-  const lastAgentId = messages.findLast((m) => m.agent_id)?.agent_id;
-
-  agent = aiAgents.find((a) => a.id === lastAgentId);
-
-  // 2. Fallback to the contact's group default agent
-
-  const groupAgentMap = org.extra.default_agent_id_by_contact_group;
-
-  if (!agent && groupAgentMap) {
-    const defaultAgentId =
-      groupAgentMap[conv.contacts?.extra?.group || "undefined"];
-
-    agent = aiAgents.find((a) => a.id === defaultAgentId);
-  }
-  */
-
-  // 4. Use the agent defined in the conversation
-  // For internal conversations, the agent does need to be active.
-
-  agent = aiAgents.find((a) =>
-    (conv.service === "local" || a.extra?.mode !== "inactive") &&
-    a.id === conversation.extra?.default_agent_id
-  );
-
-  // 3. Fallback to the oldest active agent
-
-  if (!agent) {
-    agent = aiAgents.filter((a) => a.extra?.mode !== "inactive").sort((a, b) =>
-      +a.created_at - +b.created_at
-    ).at(0);
-  }
+  // The agent was chosen before the delay, above.
 
   if (!agent) {
     log.info(
@@ -501,7 +479,7 @@ Deno.serve(async (req) => {
         .from("messages")
         .select()
         .eq("conversation_id", incoming.conversation_id)
-        .eq("direction", "incoming")
+        .not("sender_address", "is", null)
         .gt("created_at", incoming.created_at)
         .order("created_at", { ascending: true })
         .limit(1)
@@ -631,21 +609,27 @@ Deno.serve(async (req) => {
 
       // TOOL USES AND RESULTS
 
+      // A tool trace is one carrying `content.tool` — the same thing the
+      // database reads to call the row internal.
       const toolUses = response.messages.filter(
         (m) =>
-          m.direction === "internal" &&
-          m.content.type === "text" &&
-          m.content.tool &&
-          m.content.tool.provider === "local",
+          isToolTrace(m) &&
+          m.content.tool.provider === "local" &&
+          m.content.type === "text",
       ) || [];
 
       for (const row of toolUses) {
+        // `content.tool` is the tag, not `direction`: the database derives the
+        // latter from the former, and a tool trace is the only content that
+        // carries it.
+        let content = row.content as InternalMessage;
+        const toolInfo = content.tool;
+
         // Only needed to please the TypeScript compiler
         if (
-          row.direction !== "internal" ||
-          row.content.type !== "text" ||
-          !row.content.tool ||
-          row.content.tool.provider !== "local"
+          !toolInfo ||
+          toolInfo.provider !== "local" ||
+          content.type !== "text"
         ) {
           continue;
         }
@@ -664,8 +648,6 @@ Deno.serve(async (req) => {
          */
 
         let parts: (Part & ToolInfo)[] = [];
-
-        const toolInfo = row.content.tool;
 
         const agentTool = tools.find(
           (t) =>
@@ -688,17 +670,19 @@ Deno.serve(async (req) => {
           // deno-lint-ignore no-explicit-any
           const { $schema: _, ...schema } = agentTool.inputSchema as any;
 
-          const args = JSON.parse(row.content.text);
+          const args = JSON.parse(content.text);
 
           // When JSON parsing is done, the message is converted to a data part.
-          row.content = {
+          content = {
             version: "1",
-            task: row.content.task,
+            task: content.task,
             tool: toolInfo,
             type: "data",
             kind: "data",
             data: args,
           };
+
+          row.content = content;
 
           const valid = ajv.validate(schema, args);
 
@@ -734,7 +718,7 @@ Deno.serve(async (req) => {
                 throw new Error(`MCP server ${agentTool.label} not found.`);
               }
 
-              parts = await callTool(mcp, row.content, context, client);
+              parts = await callTool(mcp, content, context, client);
 
               break;
             }
@@ -793,7 +777,7 @@ Deno.serve(async (req) => {
 
         // TODO: Mutating the response object is not the most recommended way to do this
         // but it will be improved soon.
-        const taskId = row.content.task?.id || crypto.randomUUID();
+        const taskId = content.task?.id || crypto.randomUUID();
 
         for (const part of parts) {
           const message = part.type === "file"
@@ -801,6 +785,7 @@ Deno.serve(async (req) => {
               organization_id,
               service: conv.service,
               organization_address: conv.organization_address,
+              conversation_address: conv.conversation_address,
               contact_address: conv.contact_address,
               direction: "outgoing" as const,
               agent_id: agent.id,
@@ -814,6 +799,7 @@ Deno.serve(async (req) => {
               organization_id,
               service: conv.service,
               organization_address: conv.organization_address,
+              conversation_address: conv.conversation_address,
               contact_address: conv.contact_address,
               direction: "internal" as const,
               agent_id: agent.id,
@@ -841,6 +827,7 @@ Deno.serve(async (req) => {
           organization_id,
           service: conv.service,
           organization_address: conv.organization_address,
+          conversation_address: conv.conversation_address,
           contact_address: conv.contact_address,
           // Agent errors are record-only (extra.error_messages_direction is
           // deprecated — dispatching errors to the end user is gone; OpenBSP
@@ -864,10 +851,11 @@ Deno.serve(async (req) => {
 
       const output_messages = response.messages.map((message, index) => ({
         ...message,
-        // Make sure the messages have the correct organization_address and contact_address
+        // Make sure the messages have the correct addressing
         organization_id: conv.organization_id,
         conversation_id: conv.id,
         organization_address: conv.organization_address,
+        conversation_address: conv.conversation_address,
         contact_address: conv.contact_address,
         // Disambiguate by milliseconds index to ensure the insertion order.
         timestamp: new Date(Date.now() + index).toISOString(),

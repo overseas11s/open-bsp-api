@@ -107,9 +107,8 @@ All tables are scoped by \`organization_id\` via Row Level Security (RLS).
 | organization_id | uuid | FK → organizations.id |
 | service | service | whatsapp, etc. |
 | organization_address | text | |
-| contact_address | text | |
+| contact_address | text | deprecated — use conversation_address |
 | name | text | |
-| status | text | default: active |
 | extra | jsonb | |
 | conversation_address | text | the peer: individual or group/channel address |
 | created_at | timestamptz | default: now() |
@@ -123,8 +122,8 @@ All tables are scoped by \`organization_id\` via Row Level Security (RLS).
 | conversation_id | uuid | FK → conversations.id |
 | service | service | |
 | organization_address | text | |
-| contact_address | text | |
-| direction | direction | incoming, outgoing, internal |
+| contact_address | text | deprecated — use conversation_address |
+| direction | direction | deprecated — derived; use sender_address |
 | content | jsonb | message content (see content structure below) |
 | status | jsonb | delivery status |
 | agent_id | uuid | FK → agents.id |
@@ -163,11 +162,12 @@ Types: text, file, data. Kinds vary by type (text: text/reaction/caption; file: 
 |--------|------|-------|
 | id | uuid | PK, default: gen_random_uuid() |
 | organization_id | uuid | FK → organizations.id |
-| user_id | uuid | FK → auth.users (null for AI agents) |
+| user_id | uuid | FK → auth.users; null = an AI agent |
 | name | text | required |
-| ai | boolean | required |
+| role | role | owner, admin, member (default: member) |
 | extra | jsonb | AI config (model, api_url, instructions, tools, etc.) |
 | picture | text | |
+| deleted_at | timestamptz | set when the agent left; null = active |
 | created_at | timestamptz | default: now() |
 | updated_at | timestamptz | default: now() |
 
@@ -183,13 +183,15 @@ Types: text, file, data. Kinds vary by type (text: text/reaction/caption; file: 
 | created_at | timestamptz | default: now() |
 | updated_at | timestamptz | default: now() |
 
-### quick_replies
+### invitations
 | Column | Type | Notes |
 |--------|------|-------|
 | id | uuid | PK, default: gen_random_uuid() |
 | organization_id | uuid | FK → organizations.id |
-| name | text | required |
-| content | text | required |
+| email | text | required; the invitation key |
+| role | role | default: member |
+| status | text | pending, accepted, rejected, revoked |
+| invited_by | uuid | FK → agents.id |
 | created_at | timestamptz | default: now() |
 | updated_at | timestamptz | default: now() |
 
@@ -211,6 +213,8 @@ Types: text, file, data. Kinds vary by type (text: text/reaction/caption; file: 
 | Path | Description |
 |------|-------------|
 | /rest/v1/rpc/get_authorized_orgs | Get organizations the current user has access to |
+| /rest/v1/rpc/accept_invitation | Accept an invitation (body: {"invitation_id": "<uuid>"}); returns the agent id |
+| /rest/v1/rpc/reject_invitation | Reject an invitation (body: {"invitation_id": "<uuid>"}) |
 
 ---
 
@@ -238,19 +242,19 @@ Types: text, file, data. Kinds vary by type (text: text/reaction/caption; file: 
 \`GET /rest/v1/contacts?id=eq.<uuid>&select=*,contacts_addresses(*)\`
 
 **Recent conversations:**
-\`GET /rest/v1/conversations?select=id,contact_address,updated_at,name&order=updated_at.desc&limit=10\`
+\`GET /rest/v1/conversations?select=id,conversation_address,updated_at,name&order=updated_at.desc&limit=10\`
 
 **Messages in a conversation:**
-\`GET /rest/v1/messages?conversation_id=eq.<uuid>&select=id,direction,content,timestamp&order=timestamp.asc\`
+\`GET /rest/v1/messages?conversation_id=eq.<uuid>&select=id,sender_address,content,timestamp&order=timestamp.asc\`
 
-**Recent incoming messages:**
-\`GET /rest/v1/messages?direction=eq.incoming&select=id,contact_address,content,timestamp&order=timestamp.desc&limit=20\`
+**Recent incoming messages:** (authored by a contact, i.e. sender_address set)
+\`GET /rest/v1/messages?sender_address=not.is.null&select=id,sender_address,content,timestamp&order=timestamp.desc&limit=20\`
 
 **List WhatsApp accounts:**
 \`GET /rest/v1/organizations_addresses?service=eq.whatsapp&select=address,status,extra\`
 
-**List AI agents:**
-\`GET /rest/v1/agents?ai=eq.true&select=id,name,extra\`
+**List AI agents:** (an agent with no user is an AI agent)
+\`GET /rest/v1/agents?user_id=is.null&deleted_at=is.null&select=id,name,extra\`
 
 **Create a contact:**
 \`POST /rest/v1/contacts\` with body \`{"name": "John Doe"}\` and header \`Prefer: return=representation\`
@@ -261,9 +265,8 @@ Types: text, file, data. Kinds vary by type (text: text/reaction/caption; file: 
 \`\`\`json
 {
   "organization_address": "<org_phone_number_id>",
-  "contact_address": "<contact_phone>",
+  "conversation_address": "<contact_phone>",
   "service": "whatsapp",
-  "direction": "outgoing",
   "content": {"version": "1", "type": "text", "kind": "text", "text": "Hello!"}
 }
 \`\`\`

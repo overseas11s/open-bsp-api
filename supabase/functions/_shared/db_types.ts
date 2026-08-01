@@ -581,7 +581,6 @@ export type Database = {
     Tables: {
       agents: {
         Row: {
-          ai: boolean
           created_at: string
           deleted_at: string | null
           extra: Json | null
@@ -594,7 +593,6 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
-          ai?: boolean
           created_at?: string
           deleted_at?: string | null
           extra?: Json | null
@@ -607,7 +605,6 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
-          ai?: boolean
           created_at?: string
           deleted_at?: string | null
           extra?: Json | null
@@ -1228,7 +1225,6 @@ export type Database = {
       accept_invitation: { Args: { invitation_id: string }; Returns: string }
       agent_identity_and_role_unchanged: {
         Args: {
-          p_ai: boolean
           p_id: string
           p_organization_id: string
           p_role: Database["public"]["Enums"]["role"]
@@ -1237,12 +1233,7 @@ export type Database = {
         Returns: boolean
       }
       agent_identity_unchanged: {
-        Args: {
-          p_ai: boolean
-          p_id: string
-          p_organization_id: string
-          p_user_id: string
-        }
+        Args: { p_id: string; p_organization_id: string; p_user_id: string }
         Returns: boolean
       }
       contact_address_update_rules: {

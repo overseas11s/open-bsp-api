@@ -17,10 +17,8 @@ export type PreprocessingConfig = {
 };
 
 export type OrganizationExtra = {
-  response_delay_seconds?: number;
+  /** Sent on the first inbound message of a conversation, AI agent or not. */
   welcome_message?: string;
-  authorized_contacts_only?: boolean;
-  default_agent_id?: string;
   media_preprocessing?: PreprocessingConfig;
   error_messages_direction?: "internal" | "outgoing";
 };
@@ -86,7 +84,6 @@ export type ConversationExtra = {
   /** UI preferences; moving to conversations_agents.extra, where they are per-member. */
   archived?: string;
   pinned?: string;
-  default_agent_id?: string;
   // Slack (service = 'slack'; conversation_address = channel id)
   /**
    * Whether our bot is a member of this channel. The whole shared-inbox
@@ -229,6 +226,12 @@ export type AIAgentExtra = {
    */
   role?: string;
   mode?: "active" | "draft" | "inactive";
+  /**
+   * Debounce: how long to wait for the contact to finish typing before
+   * answering, so a burst of messages gets one reply. Was an organization
+   * setting; it is the agent's own behaviour.
+   */
+  response_delay_seconds?: number;
   description?: string;
   api_url?: string;
   api_key?: string;

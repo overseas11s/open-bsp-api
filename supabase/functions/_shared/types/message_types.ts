@@ -287,3 +287,20 @@ export type OutgoingMessage =
     | TemplatePart
     | ReactionPart
   );
+
+/**
+ * A tool trace — the row the database calls `internal`.
+ *
+ * `content.tool` is the marker: before_insert_on_messages reads it to derive
+ * `direction`, so asking for the tool asks the same question the deprecated
+ * column answered, one step earlier. Written as a type guard because the
+ * content union is only narrowable by a predicate: it includes the open
+ * `Json` shape, so `"tool" in content` proves nothing to the compiler.
+ */
+export function isToolTrace<T extends { content: unknown }>(
+  message: T,
+): message is T & { content: InternalMessage & Required<ToolInfo> } {
+  const content = message.content as InternalMessage | null | undefined;
+
+  return Boolean(content?.tool);
+}
