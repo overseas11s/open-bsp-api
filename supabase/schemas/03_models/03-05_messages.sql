@@ -186,7 +186,13 @@ when (
     'text', 'audio', 'image', 'video', 'document', 'sticker', 'file',
     'media', 'reaction', 'location', 'contacts', 'template'
   )
+  -- Record-only rows: content.internal is the declared marker (a tool trace,
+  -- an agent error, an internal note), content.tool the legacy one. Both are
+  -- also stripped of status.pending by before_insert, so this line is belt
+  -- and suspenders — stated here because this WHEN clause is the sendability
+  -- rule, and the rule should not depend on a strip having happened.
   and new.content -> 'tool' is null
+  and new.content ->> 'internal' is null
 )
 execute function public.dispatcher_edge_function();
 

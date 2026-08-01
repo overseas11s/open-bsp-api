@@ -213,9 +213,14 @@ begin
   if new.sender_address is null and new.direction = 'incoming'::public.direction then
     new.sender_address := new.contact_address;
   elsif new.direction is null then
+    -- No 'internal' branch on purpose: content.internal (the successor of
+    -- direction = 'internal') is not translated back into the column it
+    -- replaces. The only writer of internal rows still says direction
+    -- explicitly, and a new writer that omits it gets 'outgoing' — harmless,
+    -- since the strip below and the dispatch WHEN clause read the content,
+    -- not the direction.
     new.direction := case
       when new.sender_address is not null then 'incoming'::public.direction
-      when new.content->'tool' is not null then 'internal'::public.direction
       else 'outgoing'::public.direction
     end;
   end if;
@@ -223,8 +228,10 @@ begin
   -- Internal rows (tool traces, notes, agent errors) are record-only and
   -- never need the pending arm bit — strip it so no automation (dispatch,
   -- retry sweeps, media preprocessing) can ever pick them up. This also IS
-  -- the deprecation of dispatching agent errors.
-  if new.direction = 'internal'::public.direction then
+  -- the deprecation of dispatching agent errors. The content test is the
+  -- rule; the direction test covers legacy writers that still say it there.
+  if new.direction = 'internal'::public.direction
+    or new.content->>'internal' = 'true' then
     new.status := new.status - 'pending';
   end if;
 
@@ -298,8 +305,15 @@ begin
 
   -- Internal rows can never be armed — not even by a later merged update.
   -- This runs BEFORE set_status (trigger order is alphabetical), so the
-  -- merge never sees a pending key.
-  if old.direction = 'internal'::public.direction and new.status is not null then
+  -- merge never sees a pending key. content.internal is the marker;
+  -- old.direction covers rows that predate it.
+  if
+    (
+      old.direction = 'internal'::public.direction
+      or old.content->>'internal' = 'true'
+    )
+    and new.status is not null
+  then
     new.status := new.status - 'pending';
   end if;
 

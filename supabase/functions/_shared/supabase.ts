@@ -77,7 +77,7 @@ export type {
   OutgoingText,
   OutgoingVideo,
 } from "./types/whatsapp_endpoint_types.ts";
-export { isToolTrace, MediaTypes } from "./types/message_types.ts";
+export { isInternal, isToolTrace, MediaTypes } from "./types/message_types.ts";
 export type {
   DataPart,
   FilePart,

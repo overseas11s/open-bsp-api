@@ -7,6 +7,7 @@ import {
   type Database,
   type DataPart,
   type InternalMessage,
+  isInternal,
   isToolTrace,
   type LocalMCPToolConfig,
   type MessageInsert,
@@ -94,7 +95,7 @@ const fromContact = (m: { sender_address: string | null }) =>
   m.sender_address !== null;
 
 const spokenByUs = (m: { sender_address: string | null; content: unknown }) =>
-  m.sender_address === null && !isToolTrace(m);
+  m.sender_address === null && !isInternal(m);
 
 function getNewestIncomingMessage(
   incoming: MessageRow,
@@ -693,6 +694,7 @@ Deno.serve(async (req) => {
           // When JSON parsing is done, the message is converted to a data part.
           content = {
             version: "1",
+            internal: true,
             task: content.task,
             tool: toolInfo,
             type: "data",
@@ -823,6 +825,7 @@ Deno.serve(async (req) => {
               agent_id: agent.id,
               content: {
                 version: "1" as const,
+                internal: true as const,
                 task: { id: taskId },
                 ...part,
               } as InternalMessage,
@@ -854,6 +857,9 @@ Deno.serve(async (req) => {
           agent_id: agent.id,
           content: {
             version: "1" as const,
+            // The declared record-only marker — this is the row that had no
+            // other way to say it (an error carries no `tool`).
+            internal: true as const,
             type: "text",
             kind: "text",
             text: error instanceof Error ? error.message : String(error),

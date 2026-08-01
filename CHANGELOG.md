@@ -4,6 +4,8 @@
 
 - `messages.direction` and `contact_address` (conversations, messages) are
   deprecated; superseded by `conversation_address` and `sender_address`.
+  Record-only rows (tool traces, errors, notes) declare `content.internal: true`
+  instead of `direction: "internal"`.
 - `group_address` was absorbed by `conversation_address` (conversations,
   messages); use `conversations.type` to distinguish between direct, multiple,
   group, channel.

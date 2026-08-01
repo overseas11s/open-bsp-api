@@ -47,20 +47,13 @@ Monetization
 Both columns are still WRITTEN everywhere — the rule is only that nothing new
 should READ them.
 
-- [ ] `internal` has no successor. `sender_address` replaces incoming/outgoing,
-      but nothing in the new addressing says "recorded, never sent".
-
-      "No `status.pending`" is the closest candidate and it is already how the
-      rule is ENFORCED (before_insert strips the key from internal rows, and
-      nothing unarmed can dispatch) — but it does not IDENTIFY them: echoes and
-      history imports also arrive with no pending and are genuinely outgoing.
-      The shape that separates them is an EMPTY status: `{}` for a recorded
-      row, `{sent}`/`{read}` for an echo. Workable, and subtle enough to want
-      stating in the schema rather than inferred by each reader.
-
-      Note it only answers dispatch. A reader still wants to know a tool trace
-      from an agent error from a real send: `content.tool` covers the first,
-      nothing covers the second.
+- [x] `internal`'s successor is `content.internal: true` — declared by the
+      writer in the content, where it travels with the message. Clients set it
+      (agent-client does, on tool traces and errors); the database only reads
+      it: before_insert derives the legacy direction and strips status.pending,
+      a merge cannot re-arm it, dispatch refuses it. Existing v1-shaped internal
+      rows are backfilled; v0-shaped ones lean on the `content.tool` fallback
+      until they age out.
 
 - [ ] The dispatchers and webhooks still branch on `direction`, and the
       `MessageRow` union discriminates on it. agent-client and the dispatch cron

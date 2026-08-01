@@ -768,6 +768,7 @@ export class ChatCompletionsHandler
           agent_id: agent.id,
           content: {
             version: "1" as const,
+            internal: true as const,
             task: {
               // This id will be used to merge all the tool calls together
               // in one single message during prepareRequest().

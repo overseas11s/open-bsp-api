@@ -639,6 +639,7 @@ export class ResponsesHandler
           agent_id: agent.id,
           content: {
             version: "1" as const,
+            internal: true as const,
             task: { id: taskId },
             tool: tool!,
             type: "text" as const,

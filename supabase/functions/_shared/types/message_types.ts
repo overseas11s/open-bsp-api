@@ -267,6 +267,16 @@ export type InternalMessage =
     version: "1";
     re_message_id?: string; // replied, reacted or forwarded message id
     forwarded?: boolean;
+    /**
+     * Record-only: this row is never dispatched, to anyone. The successor of
+     * `direction: "internal"` — declared here so the marker travels with the
+     * content instead of living in a column readers must know to consult.
+     * Writers set it themselves (agent-client on tool traces and errors, API
+     * clients on internal notes); the database reads it — strips
+     * status.pending, refuses dispatch — but never stamps it, and never
+     * translates it back into the direction column it replaces.
+     */
+    internal?: true;
   }
   & TaskInfo
   & ToolInfo
@@ -303,4 +313,15 @@ export function isToolTrace<T extends { content: unknown }>(
   const content = message.content as InternalMessage | null | undefined;
 
   return Boolean(content?.tool);
+}
+
+/**
+ * Any record-only row — tool traces, agent errors, internal notes. The
+ * broader question than isToolTrace: `content.internal` is the declared
+ * marker, `content.tool` the rows that predate it.
+ */
+export function isInternal(message: { content: unknown }): boolean {
+  const content = message.content as InternalMessage | null | undefined;
+
+  return Boolean(content?.internal || content?.tool);
 }
