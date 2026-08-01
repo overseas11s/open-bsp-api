@@ -30,7 +30,7 @@ All \`/rest/v1/\` endpoints use [PostgREST](https://postgrest.org) syntax.
 ### Embedding relations (joins)
 
 \`?select=*,contacts_addresses(*)\` — embed related table via FK.
-\`?select=*,messages(id,content,direction)\` — embed with column selection.
+\`?select=*,messages(id,content,sender_address)\` — embed with column selection.
 
 ### Ordering
 
@@ -107,7 +107,6 @@ All tables are scoped by \`organization_id\` via Row Level Security (RLS).
 | organization_id | uuid | FK → organizations.id |
 | service | service | whatsapp, etc. |
 | organization_address | text | |
-| contact_address | text | deprecated — use conversation_address |
 | name | text | |
 | extra | jsonb | |
 | conversation_address | text | the peer: individual or group/channel address |
@@ -122,8 +121,6 @@ All tables are scoped by \`organization_id\` via Row Level Security (RLS).
 | conversation_id | uuid | FK → conversations.id |
 | service | service | |
 | organization_address | text | |
-| contact_address | text | deprecated — use conversation_address |
-| direction | direction | deprecated — derived; use sender_address |
 | content | jsonb | message content (see content structure below) |
 | status | jsonb | delivery status |
 | agent_id | uuid | FK → agents.id |

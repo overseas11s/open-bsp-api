@@ -703,10 +703,11 @@ async function processMessage(request: Request): Promise<Response> {
   for (const entry of payload.entry) {
     for (const event of extractEvents(entry)) {
       const isEcho = !!event.message?.is_echo;
-      // Self-messages arrive as echoes (the business messaging its own account)
-      // but should surface as incoming so they're handled like a normal inbound
-      // DM. Keep echo-style address resolution (org = sender = the business) and
-      // only flip the direction below.
+      // Self-messages arrive as echoes (the business messaging its own
+      // account) but should surface as inbound so they're handled like a
+      // normal DM. Keep echo-style address resolution (org = sender = the
+      // business); the only difference below is that they carry a
+      // sender_address like any contact-authored row.
       const isSelf = !!event.message?.is_self;
       const organization_address = isEcho
         ? event.sender.id
@@ -738,8 +739,8 @@ async function processMessage(request: Request): Promise<Response> {
           external_id: `${entry.id}#referral#${event.timestamp}`,
           service: "instagram",
           organization_address,
-          contact_address,
-          direction: "incoming",
+          conversation_address: contact_address,
+          sender_address: contact_address,
           content: refContent,
           timestamp,
         });
@@ -753,8 +754,8 @@ async function processMessage(request: Request): Promise<Response> {
           external_id: event.postback.mid,
           service: "instagram",
           organization_address,
-          contact_address,
-          direction: "incoming",
+          conversation_address: contact_address,
+          sender_address: contact_address,
           content: {
             version: "1",
             type: "data",
@@ -777,8 +778,8 @@ async function processMessage(request: Request): Promise<Response> {
           external_id: `${event.reaction.mid}#reaction#${event.timestamp}`,
           service: "instagram",
           organization_address,
-          contact_address,
-          direction: "incoming",
+          conversation_address: contact_address,
+          sender_address: contact_address,
           content: {
             version: "1",
             type: "data",
@@ -807,8 +808,7 @@ async function processMessage(request: Request): Promise<Response> {
           external_id: event.read.mid,
           service: "instagram",
           organization_address,
-          contact_address,
-          direction: "outgoing",
+          conversation_address: contact_address,
           content: {} as OutgoingMessage, // {} is a no-op under merge_update
           status: { read: timestamp },
         });
@@ -827,8 +827,8 @@ async function processMessage(request: Request): Promise<Response> {
           external_id: event.message_edit.mid,
           service: "instagram",
           organization_address,
-          contact_address,
-          direction: "incoming",
+          conversation_address: contact_address,
+          sender_address: contact_address,
           content: {
             version: "1",
             type: "text",
@@ -854,8 +854,7 @@ async function processMessage(request: Request): Promise<Response> {
                 external_id: msg.mid,
                 service: "instagram",
                 organization_address,
-                contact_address,
-                direction: "outgoing",
+                conversation_address: contact_address,
                 content: {} as OutgoingMessage,
                 status: { deleted: timestamp },
               }
@@ -864,8 +863,8 @@ async function processMessage(request: Request): Promise<Response> {
                 external_id: msg.mid,
                 service: "instagram",
                 organization_address,
-                contact_address,
-                direction: "incoming",
+                conversation_address: contact_address,
+                sender_address: contact_address,
                 content: {} as IncomingMessage,
                 status: { deleted: timestamp },
               },
@@ -882,8 +881,7 @@ async function processMessage(request: Request): Promise<Response> {
             external_id: msg.mid,
             service: "instagram",
             organization_address,
-            contact_address,
-            direction: "outgoing",
+            conversation_address: contact_address,
             content: content as OutgoingMessage,
             status: { sent: timestamp },
             timestamp,
@@ -894,8 +892,8 @@ async function processMessage(request: Request): Promise<Response> {
             external_id: msg.mid,
             service: "instagram",
             organization_address,
-            contact_address,
-            direction: "incoming",
+            conversation_address: contact_address,
+            sender_address: contact_address,
             content,
             timestamp,
           });

@@ -10,7 +10,7 @@
 //   - Sends made through OpenBSP come back as message events too; the
 //     external_id upsert merges them into the dispatcher's row and FILLS its
 //     sender_address (null → the member who sent — fill-once in
-//     preserve_message_direction). When the echo lands first,
+//     preserve_message_addressing). When the echo lands first,
 //     commitDispatchedMessage folds the duplicate.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as log from "../_shared/logger.ts";
@@ -473,7 +473,6 @@ async function onMessage(
     conversation_address: channel,
     sender_address: sender,
     agent_id: linked?.agent_id,
-    direction: "incoming" as const,
     thread_id: event.thread_ts,
     timestamp: tsToIso(event.ts),
     // Same shape as every other inbound message, and one shape for two cases.
@@ -628,7 +627,6 @@ async function onReaction(
       conversation_address: channel,
       sender_address: event.user,
       agent_id: linked?.agent_id,
-      direction: "incoming" as const,
       external_id: externalId(ctx.team, channel, event.event_ts ?? ts),
       timestamp: tsToIso(event.event_ts ?? ts),
       // Same shape as an inbound message — see the comment there.

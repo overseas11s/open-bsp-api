@@ -752,7 +752,6 @@ export type Database = {
       }
       conversations: {
         Row: {
-          contact_address: string | null
           conversation_address: string
           created_at: string
           extra: Json | null
@@ -765,7 +764,6 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          contact_address?: string | null
           conversation_address: string
           created_at?: string
           extra?: Json | null
@@ -778,7 +776,6 @@ export type Database = {
           updated_at?: string
         }
         Update: {
-          contact_address?: string | null
           conversation_address?: string
           created_at?: string
           extra?: Json | null
@@ -791,13 +788,6 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "conversations_contact_address_fkey"
-            columns: ["organization_id", "service", "contact_address"]
-            isOneToOne: false
-            referencedRelation: "contacts_addresses"
-            referencedColumns: ["organization_id", "service", "address"]
-          },
           {
             foreignKeyName: "conversations_organization_address_fkey"
             columns: ["organization_id", "service", "organization_address"]
@@ -978,12 +968,10 @@ export type Database = {
       messages: {
         Row: {
           agent_id: string | null
-          contact_address: string | null
           content: Json
           conversation_address: string | null
           conversation_id: string
           created_at: string
-          direction: Database["public"]["Enums"]["direction"]
           external_id: string | null
           id: string
           organization_address: string
@@ -997,12 +985,10 @@ export type Database = {
         }
         Insert: {
           agent_id?: string | null
-          contact_address?: string | null
           content: Json
           conversation_address?: string | null
           conversation_id: string
           created_at?: string
-          direction: Database["public"]["Enums"]["direction"]
           external_id?: string | null
           id?: string
           organization_address: string
@@ -1016,12 +1002,10 @@ export type Database = {
         }
         Update: {
           agent_id?: string | null
-          contact_address?: string | null
           content?: Json
           conversation_address?: string | null
           conversation_id?: string
           created_at?: string
-          direction?: Database["public"]["Enums"]["direction"]
           external_id?: string | null
           id?: string
           organization_address?: string
@@ -1292,7 +1276,6 @@ export type Database = {
       reject_invitation: { Args: { invitation_id: string }; Returns: undefined }
     }
     Enums: {
-      direction: "incoming" | "outgoing" | "internal"
       log_level: "info" | "warning" | "error"
       role: "owner" | "admin" | "member"
       service:
@@ -1986,7 +1969,6 @@ export const Constants = {
   },
   public: {
     Enums: {
-      direction: ["incoming", "outgoing", "internal"],
       log_level: ["info", "warning", "error"],
       role: ["owner", "admin", "member"],
       service: [

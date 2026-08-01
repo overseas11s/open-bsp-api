@@ -94,10 +94,10 @@ envelope:
     "organization_id": "…",
     "conversation_id": "…",
     "external_id": "wamid.…",
-    "direction": "incoming",
     "service": "whatsapp",
     "organization_address": "<PHONE_NUMBER_ID>",
-    "contact_address": "5491155551234",
+    "conversation_address": "5491155551234",
+    "sender_address": "5491155551234",
     "content": {
       "version": "1",
       "type": "text",
@@ -110,8 +110,9 @@ envelope:
 }
 ```
 
-Reply when `data.direction` is `"incoming"` — the webhook also fires for your
-own outgoing rows (and, with `"update"`, for status changes).
+Reply when `data.sender_address` is set — the contact authored it; it is null on
+your own outgoing rows, which the webhook also fires for (and, with `"update"`,
+for status changes).
 
 **2. Send a message** — insert a row; OpenBSP dispatches it to WhatsApp:
 
@@ -122,9 +123,8 @@ curl -X POST 'https://nheelwshzbgenpavwhcy.supabase.co/rest/v1/messages' \
   -d '{
     "organization_id": "<ORG_ID>",
     "organization_address": "<PHONE_NUMBER_ID>",
-    "contact_address": "5491155551234",
+    "conversation_address": "5491155551234",
     "service": "whatsapp",
-    "direction": "outgoing",
     "content": {
       "version": "1",
       "type": "text",
@@ -148,9 +148,8 @@ const supabase = createClient(
 await supabase.from("messages").insert({
   organization_id: "<ORG_ID>",
   organization_address: "<PHONE_NUMBER_ID>",
-  contact_address: "5491155551234",
+  conversation_address: "5491155551234",
   service: "whatsapp",
-  direction: "outgoing",
   content: {
     version: "1",
     type: "text",
@@ -1056,7 +1055,7 @@ This event-driven flow ensures that each component is decoupled and scalable.
   shape it is: `direct`, `multiple`, `group` or `channel`. Except on the
   internal `local` service, it mirrors state owned by the external service and
   is read-only to members.
-- **messages**: Messages within a `conversation`; carry direction, type,
+- **messages**: Messages within a `conversation`; carry authorship, type,
   payload, status, and timestamps.
 - **agents**: Human or AI agents for an `organization`; optionally linked to an
   auth `user`.

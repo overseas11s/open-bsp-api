@@ -60,7 +60,8 @@ function formatStatus(
 function countUnread(messages: MessageRow[] | undefined | null): number {
   if (!messages) return 0;
 
-  const index = messages.findIndex((m) => m.direction === "outgoing");
+  // Unread = contact-authored messages since our last send (sender null = us).
+  const index = messages.findIndex((m) => m.sender_address === null);
 
   if (index === -1) return 0;
 
@@ -166,12 +167,12 @@ export async function listConversations(params: ListConversationsParams) {
     .eq("organization_id", params.orgId)
     .eq("organization_address", account.address)
     .eq("service", "whatsapp")
-    .neq("direction", "internal")
+    .is("content->internal", null) // record-only rows are not conversation
     .order("timestamp", { ascending: false })
     .limit(limit * 20); // Fetch extra to account for multiple messages per conversation
 
   if (allowedContacts.length) {
-    recentQuery = recentQuery.in("contact_address", allowedContacts);
+    recentQuery = recentQuery.in("conversation_address", allowedContacts);
   }
 
   const { data: recentMessages } = await recentQuery.throwOnError();
@@ -188,19 +189,33 @@ export async function listConversations(params: ListConversationsParams) {
     };
   }
 
-  // Query 2: Fetch full conversation data for the selected IDs
+  // Query 2: Fetch full conversation data for the selected IDs. The contact
+  // comes from its own query below — conversation_address is a soft
+  // reference, so there is no FK for PostgREST to embed through.
   const { data: conversations } = await params.supabase
     .from("conversations")
     .select(`
       *,
-      messages(*),
-      contact_address:contacts_addresses(*, contact:contacts(*))
+      messages(*)
     `)
     .in("id", conversationIds)
-    .neq("messages.direction", "internal")
+    .is("messages.content->internal", null)
     .order("timestamp", { referencedTable: "messages", ascending: false })
     .limit(10, { referencedTable: "messages" })
     .throwOnError();
+
+  const { data: contactRows } = await params.supabase
+    .from("contacts_addresses")
+    .select("*, contact:contacts(*)")
+    .eq("organization_id", params.orgId)
+    .eq("service", "whatsapp")
+    .in(
+      "address",
+      conversations.map((c) => c.conversation_address),
+    )
+    .throwOnError();
+
+  const contactByAddress = new Map(contactRows.map((r) => [r.address, r]));
 
   // Sort by the original order from query 1
   const idOrder = new Map(conversationIds.map((id, i) => [id, i]));
@@ -213,22 +228,26 @@ export async function listConversations(params: ListConversationsParams) {
       name: account.name,
       phone: account.phone,
     },
-    conversations: sortedConversations.map((c) => ({
-      contact: {
-        name: c.contact_address?.contact?.name ||
-          c.contact_address?.extra?.name || "Unknown",
-        phone: c.contact_address?.address,
-      },
-      unread: countUnread(c.messages),
-      last_message: c.messages?.length
-        ? {
-          direction: c.messages[0].direction,
-          content: c.messages[0].content,
-          timestamp: formatTime(c.messages[0].timestamp),
-          status: formatStatus(c.messages[0].status),
-        }
-        : null,
-    })),
+    conversations: sortedConversations.map((c) => {
+      const contactAddress = contactByAddress.get(c.conversation_address);
+
+      return {
+        contact: {
+          name: contactAddress?.contact?.name ||
+            contactAddress?.extra?.name || "Unknown",
+          phone: c.conversation_address,
+        },
+        unread: countUnread(c.messages),
+        last_message: c.messages?.length
+          ? {
+            from: c.messages[0].sender_address ? "contact" : "business",
+            content: c.messages[0].content,
+            timestamp: formatTime(c.messages[0].timestamp),
+            status: formatStatus(c.messages[0].status),
+          }
+          : null,
+      };
+    }),
   };
 }
 
@@ -269,14 +288,13 @@ export async function fetchConversation(params: FetchConversationParams) {
     .from("conversations")
     .select(`
       *,
-      messages(direction, content, timestamp, status),
-      contacts_addresses(*, contacts(*))
+      messages(sender_address, content, timestamp, status)
     `)
     .eq("organization_id", params.orgId)
-    .eq("contact_address", contactPhone)
+    .eq("conversation_address", contactPhone)
     .eq("organization_address", account.address)
     .eq("service", "whatsapp")
-    .neq("messages.direction", "internal")
+    .is("messages.content->internal", null)
     .order("created_at", { ascending: false })
     .order("timestamp", { ascending: false, referencedTable: "messages" })
     .limit(1)
@@ -288,11 +306,21 @@ export async function fetchConversation(params: FetchConversationParams) {
     throw new Error(`Conversation with contact ${contactPhone} not found`);
   }
 
+  // The contact rides its own query (soft reference, no FK to embed by).
+  const { data: contactAddressRow } = await params.supabase
+    .from("contacts_addresses")
+    .select("*, contacts(*)")
+    .eq("organization_id", params.orgId)
+    .eq("service", "whatsapp")
+    .eq("address", contactPhone)
+    .maybeSingle()
+    .throwOnError();
+
   // Service Window Logic
   // Note: uses only the fetched messages (limited by `limit` param),
   // so it may report "closed" if the last incoming is outside the window.
   const lastIncoming = conversation.messages?.findLast((m) =>
-    m.direction === "incoming"
+    m.sender_address !== null
   );
 
   let serviceWindow = "closed";
@@ -313,7 +341,7 @@ export async function fetchConversation(params: FetchConversationParams) {
     }
 
     return {
-      direction: m.direction,
+      from: m.sender_address ? "contact" : "business",
       content: m.content,
       time: formatTime(m.timestamp),
       status: formatStatus(m.status),
@@ -324,8 +352,8 @@ export async function fetchConversation(params: FetchConversationParams) {
   return {
     account: { name: account.name, phone: account.phone },
     contact: {
-      name: conversation.contacts_addresses?.contacts?.name ||
-        conversation.contacts_addresses?.extra?.name,
+      name: contactAddressRow?.contacts?.name ||
+        contactAddressRow?.extra?.name,
       phone: contactPhone,
     },
     service_window: serviceWindow,
@@ -442,8 +470,8 @@ export async function sendMessage(params: SendMessageParams) {
       .select("timestamp")
       .eq("organization_id", params.orgId)
       .eq("organization_address", account.address)
-      .eq("contact_address", contactPhone)
-      .eq("direction", "incoming")
+      .eq("conversation_address", contactPhone)
+      .not("sender_address", "is", null)
       .order("timestamp", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -478,9 +506,8 @@ export async function sendMessage(params: SendMessageParams) {
     .insert({
       organization_id: params.orgId,
       organization_address: account.address,
-      contact_address: contactPhone,
+      conversation_address: contactPhone,
       service: "whatsapp",
-      direction: "outgoing",
       content: params.content,
     })
     .throwOnError();

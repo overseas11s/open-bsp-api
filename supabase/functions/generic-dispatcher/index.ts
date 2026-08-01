@@ -106,7 +106,10 @@ Deno.serve(async (req) => {
     });
   };
 
-  if (message.direction === "outgoing") {
+  // Authorship decides the job: a row the account itself wrote (sender null)
+  // is a send; a contact's row only ever comes here for read receipts and
+  // typing indicators.
+  if (message.sender_address === null) {
     try {
       // Hand the connector a signed download URL for internal media so it
       // can fetch the bytes with a plain GET.
@@ -184,7 +187,7 @@ Deno.serve(async (req) => {
         .eq("id", message.id)
         .throwOnError();
     }
-  } else if (message.direction === "incoming") {
+  } else {
     // Read receipt / typing indicator, mirroring whatsapp-dispatcher's
     // recency window.
     const recent = (ts: string | undefined) =>
@@ -211,10 +214,6 @@ Deno.serve(async (req) => {
         `Connector responded ${response.status} to status forward`,
       );
     }
-  } else {
-    throw new Error(
-      `Cannot dispatch message ${message.id}: direction is not 'outgoing' nor 'incoming'`,
-    );
   }
 
   return new Response();

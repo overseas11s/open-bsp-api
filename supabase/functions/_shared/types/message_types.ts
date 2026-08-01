@@ -316,12 +316,12 @@ export function isToolTrace<T extends { content: unknown }>(
 }
 
 /**
- * Any record-only row — tool traces, agent errors, internal notes. The
- * broader question than isToolTrace: `content.internal` is the declared
- * marker, `content.tool` the rows that predate it.
+ * Any record-only row — tool traces, agent errors, internal notes.
+ * `content.internal` is the one marker; a tool trace carries it too, because
+ * its writer declares it.
  */
 export function isInternal(message: { content: unknown }): boolean {
   const content = message.content as InternalMessage | null | undefined;
 
-  return Boolean(content?.internal || content?.tool);
+  return Boolean(content?.internal);
 }

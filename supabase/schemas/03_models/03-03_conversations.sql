@@ -3,11 +3,9 @@ create table public.conversations (
   id uuid default gen_random_uuid() not null,
   service public.service not null,
   organization_address text not null,
-  contact_address text, -- legacy, direct chats only; superseded by conversation_address
   -- The peer this conversation is with — an individual or a group/channel
   -- address (e.g. WhatsApp phone/group JID, Slack channel id). Soft reference
-  -- (no FK): peers span contacts and external containers. Replaces
-  -- contact_address, which legacy writers still populate until readers migrate.
+  -- (no FK): peers span contacts and external containers.
   --
   -- Always present. For services with a real peer it is that peer's address.
   -- `local` has no external peer, so it addresses itself, in one of two ways
@@ -133,19 +131,9 @@ foreign key (organization_id, service, organization_address)
 references public.organizations_addresses(organization_id, service, address)
 on delete cascade;
 
-alter table only public.conversations
-add constraint conversations_contact_address_fkey
-foreign key (organization_id, service, contact_address)
-references public.contacts_addresses(organization_id, service, address)
-on delete no action;
-
 create index conversations_updated_at_idx
 on public.conversations
 using btree (updated_at);
-
-create index conversations_contact_address_idx
-on public.conversations
-using btree (contact_address);
 
 create index conversations_conversation_address_idx
 on public.conversations

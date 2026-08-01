@@ -527,8 +527,6 @@ export class ResponsesHandler
           service: conversation.service,
           organization_address: conversation.organization_address,
           conversation_address: conversation.conversation_address,
-          contact_address: conversation.contact_address,
-          direction: "outgoing",
           agent_id: agent.id,
           content: {
             version: "1",
@@ -556,8 +554,6 @@ export class ResponsesHandler
           service: conversation.service,
           organization_address: conversation.organization_address,
           conversation_address: conversation.conversation_address,
-          contact_address: conversation.contact_address,
-          direction: "outgoing",
           agent_id: agent.id,
           content: {
             version: "1",
@@ -634,8 +630,6 @@ export class ResponsesHandler
           service: conversation.service,
           organization_address: conversation.organization_address,
           conversation_address: conversation.conversation_address,
-          contact_address: conversation.contact_address,
-          direction: "internal" as const,
           agent_id: agent.id,
           content: {
             version: "1" as const,
@@ -681,8 +675,6 @@ export class ResponsesHandler
             service: conversation.service,
             organization_address: conversation.organization_address,
             conversation_address: conversation.conversation_address,
-            contact_address: conversation.contact_address,
-            direction: "outgoing",
             agent_id: agent.id,
             content: {
               version: "1",

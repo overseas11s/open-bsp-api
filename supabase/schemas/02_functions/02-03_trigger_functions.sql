@@ -38,7 +38,7 @@ $$;
 --
 -- RLS cannot express either: an UPDATE policy sees the old row in USING and
 -- the new row in WITH CHECK, never both, so "this column may not change" has
--- to be a trigger. Same reason preserve_message_direction exists.
+-- to be a trigger. Same reason preserve_message_addressing exists.
 create function public.preserve_conversation_identity() returns trigger
 language plpgsql
 as $$
@@ -195,43 +195,21 @@ security definer
 set search_path = ''
 as $$
 begin
-  -- Transition compat (direction → sender_address, contact_address →
-  -- conversation_address): legacy writers still send direction +
-  -- contact_address; new writers send sender_address/conversation_address
-  -- only. Derive whichever side is missing so both stay consistent until
-  -- direction and contact_address are dropped.
+  -- The addressing, in two columns (direction and contact_address are gone):
   --
   -- sender_address is a contact reference or null: the peer who authored the
   -- message (a phone/BSUID, a Slack workspace member — ties to
   -- contacts_addresses), or null when the account itself spoke. Deliverable
   -- vs record-only is decided by content kind + status.pending, not by
   -- authorship (see the dispatch trigger's kind whitelist).
-  if new.conversation_address is null then
-    new.conversation_address := new.contact_address;
-  end if;
-
-  if new.sender_address is null and new.direction = 'incoming'::public.direction then
-    new.sender_address := new.contact_address;
-  elsif new.direction is null then
-    -- No 'internal' branch on purpose: content.internal (the successor of
-    -- direction = 'internal') is not translated back into the column it
-    -- replaces. The only writer of internal rows still says direction
-    -- explicitly, and a new writer that omits it gets 'outgoing' — harmless,
-    -- since the strip below and the dispatch WHEN clause read the content,
-    -- not the direction.
-    new.direction := case
-      when new.sender_address is not null then 'incoming'::public.direction
-      else 'outgoing'::public.direction
-    end;
-  end if;
+  -- conversation_address is the peer the conversation is with.
 
   -- Internal rows (tool traces, notes, agent errors) are record-only and
   -- never need the pending arm bit — strip it so no automation (dispatch,
   -- retry sweeps, media preprocessing) can ever pick them up. This also IS
-  -- the deprecation of dispatching agent errors. The content test is the
-  -- rule; the direction test covers legacy writers that still say it there.
-  if new.direction = 'internal'::public.direction
-    or new.content->>'internal' = 'true' then
+  -- the deprecation of dispatching agent errors. content.internal is the one
+  -- marker — a tool trace says it too, because its writer says it.
+  if new.content->>'internal' = 'true' then
     new.status := new.status - 'pending';
   end if;
 
@@ -261,25 +239,17 @@ begin
       and conversation_address = new.conversation_address;
   end if;
 
-  -- Create conversation if it doesn't exist. The legacy contact_address is
-  -- only meaningful on direct chats (peer = a contact); in group messages
-  -- contact_address carries the per-message sender, which must not become
-  -- the conversation's peer.
+  -- Create conversation if it doesn't exist.
   if new.conversation_id is null then
     insert into public.conversations (
       organization_id,
       organization_address,
       conversation_address,
-      contact_address,
       service
     ) values (
       new.organization_id,
       new.organization_address,
       new.conversation_address,
-      case
-        when new.contact_address = new.conversation_address
-        then new.contact_address
-      end,
       new.service
     )
     returning id into new.conversation_id;
@@ -289,31 +259,23 @@ begin
 end;
 $$;
 
--- BEFORE UPDATE: addressing is fill-once. direction/conversation_address are
--- set at insert and never change; sender_address may be FILLED (null → the
--- actual author) but never flipped — the Slack echo of a send from OpenBSP
--- updates the dispatched row (sender null) with the member who sent it, while
--- an Instagram self-message echo landing on an already-attributed row cannot
+-- BEFORE UPDATE: addressing is fill-once. conversation_address is set at
+-- insert and never changes; sender_address may be FILLED (null → the actual
+-- author) but never flipped — the Slack echo of a send from OpenBSP updates
+-- the dispatched row (sender null) with the member who sent it, while an
+-- Instagram self-message echo landing on an already-attributed row cannot
 -- rewrite it. Updates otherwise only merge content/status.
-create function public.preserve_message_direction() returns trigger
+create function public.preserve_message_addressing() returns trigger
 language plpgsql
 as $$
 begin
-  new.direction := old.direction;
   new.sender_address := coalesce(old.sender_address, new.sender_address);
   new.conversation_address := old.conversation_address;
 
   -- Internal rows can never be armed — not even by a later merged update.
   -- This runs BEFORE set_status (trigger order is alphabetical), so the
-  -- merge never sees a pending key. content.internal is the marker;
-  -- old.direction covers rows that predate it.
-  if
-    (
-      old.direction = 'internal'::public.direction
-      or old.content->>'internal' = 'true'
-    )
-    and new.status is not null
-  then
+  -- merge never sees a pending key.
+  if old.content->>'internal' = 'true' and new.status is not null then
     new.status := new.status - 'pending';
   end if;
 
@@ -394,12 +356,14 @@ as $$
 begin
   -- Only if we became unlinked (contact_id IS NULL)
   if new.contact_id is null and old.contact_id is not null then
-    -- If no conversations, delete the address
+    -- If no conversations, delete the address. conversation_address equals
+    -- the contact's address exactly on direct chats — the only shape that
+    -- links a contact in the first place.
     if not exists (
       select 1 from public.conversations c
       where c.organization_id = new.organization_id
         and c.service = new.service
-        and c.contact_address = new.address
+        and c.conversation_address = new.address
     ) then
       delete from public.contacts_addresses
       where organization_id = new.organization_id
@@ -502,17 +466,11 @@ language plpgsql
 set search_path = ''
 as $$
 declare
-  _existing_address text;
   _declared text[];
   _unknown text[];
   _roster uuid[];
   _caller uuid;
 begin
-  -- Transition compat: derive conversation_address from the legacy column.
-  if new.conversation_address is null then
-    new.conversation_address := new.contact_address;
-  end if;
-
   -- `local` addresses itself, in one of two ways, and the client chooses by
   -- stating a type:
   --
@@ -622,32 +580,8 @@ begin
     new.conversation_address := new.id::text;
   end if;
 
-  -- Contact bootstrap applies to legacy individual-peer writers only; new
-  -- writers manage contacts_addresses themselves (soft reference by design).
-  if new.contact_address is null then
-    return new;
-  end if;
-
-  select address into _existing_address
-  from public.contacts_addresses
-  where organization_id = new.organization_id
-    and service = new.service
-    and address = new.contact_address
-  order by created_at desc
-  limit 1;
-
-  if _existing_address is null then
-    insert into public.contacts_addresses (
-      organization_id,
-      address,
-      service
-    ) values (
-      new.organization_id,
-      new.contact_address,
-      new.service
-    );
-  end if;
-
+  -- No contact bootstrap: writers manage contacts_addresses themselves
+  -- (conversation_address is a soft reference by design).
   return new;
 end;
 $$;

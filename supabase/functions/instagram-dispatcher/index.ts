@@ -9,6 +9,7 @@ import {
   type IgErrorResponse,
   type IgReactionAction,
   type IgSenderAction,
+  type IncomingStatus,
   type MessageRow,
   type OutgoingMessage,
   type WebhookPayload,
@@ -229,9 +230,11 @@ Deno.serve(async (req) => {
 
   log.info(`Dispatching message ${message.id}`, message);
 
-  if (!message.contact_address) {
+  // The recipient is the conversation's peer — Instagram only has direct
+  // chats, so conversation_address is the contact.
+  if (!message.conversation_address) {
     throw new Error(
-      `Cannot dispatch message with id ${message.id} because contact_address is missing`,
+      `Cannot dispatch message with id ${message.id} because conversation_address is missing`,
     );
   }
 
@@ -251,13 +254,16 @@ Deno.serve(async (req) => {
     );
   }
 
-  if (message.direction === "outgoing") {
+  // Authorship decides the job: a row the account itself wrote (sender null)
+  // is a send; a contact's row only ever comes here for read receipts and
+  // typing indicators.
+  if (message.sender_address === null) {
     try {
       const content = message.content as OutgoingMessage;
 
       const payloads = await outgoingMessageToPayloads({
         content,
-        to: message.contact_address,
+        to: message.conversation_address,
         client,
       });
 
@@ -348,20 +354,23 @@ Deno.serve(async (req) => {
         .eq("id", message.id)
         .throwOnError();
     }
-  } else if (message.direction === "incoming") {
+  } else {
+    // A contact's row: the only statuses that dispatch back are ours to give.
+    const status = message.status as IncomingStatus;
+
     let readReceipt = false;
     let typingIndicator = false;
 
     if (
-      message.status.read &&
-      Date.now() - +new Date(message.status.read) <= 60 * 1000
+      status.read &&
+      Date.now() - +new Date(status.read) <= 60 * 1000
     ) {
       readReceipt = true;
     }
 
     if (
-      message.status.typing &&
-      Date.now() - +new Date(message.status.typing) <= 60 * 1000
+      status.typing &&
+      Date.now() - +new Date(status.typing) <= 60 * 1000
     ) {
       typingIndicator = true;
     }
@@ -376,7 +385,7 @@ Deno.serve(async (req) => {
 
     // Instagram sender actions must be sent one at a time, each carrying only
     // the recipient and the action (no message_id, unlike WhatsApp's read mark).
-    const recipient = { id: message.contact_address };
+    const recipient = { id: message.conversation_address };
 
     try {
       if (readReceipt) {
@@ -417,10 +426,6 @@ Deno.serve(async (req) => {
 
       throw error;
     }
-  } else {
-    throw new Error(
-      `Cannot dispatch message with id ${message.id} because its direction is not 'outgoing' nor 'incoming'.`,
-    );
   }
 
   return new Response();

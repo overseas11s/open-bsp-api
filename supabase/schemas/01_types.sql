@@ -1,4 +1,3 @@
-create type public.direction as enum ('incoming', 'outgoing', 'internal');
 
 create type public.service as enum (
   'whatsapp',

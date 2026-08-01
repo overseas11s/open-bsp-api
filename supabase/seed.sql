@@ -100,9 +100,9 @@ insert into billing.costs (provider, product, quantity, unit, pricing) values
 
 -- Create all 3 organizations
 insert into public.organizations (id, name, extra) values
-  ('3a182d8d-d6d8-44bd-b021-029915476b8c', 'Mountain Peaks', '{"response_delay_seconds": 0, "media_preprocessing": {"mode": "active"}}'),
-  ('4b293e9e-5f4a-5b7c-9d0e-1f2a3b4c5d6e', 'Plains', '{"response_delay_seconds": 0, "media_preprocessing": {"mode": "active"}}'),
-  ('5c3a4f0f-6e5b-6c8d-0e1f-2a3b4c5d6e7f', 'Dark Forest', '{"response_delay_seconds": 0, "media_preprocessing": {"mode": "active"}}')
+  ('3a182d8d-d6d8-44bd-b021-029915476b8c', 'Mountain Peaks', '{"media_preprocessing": {"mode": "active"}}'),
+  ('4b293e9e-5f4a-5b7c-9d0e-1f2a3b4c5d6e', 'Plains', '{"media_preprocessing": {"mode": "active"}}'),
+  ('5c3a4f0f-6e5b-6c8d-0e1f-2a3b4c5d6e7f', 'Dark Forest', '{"media_preprocessing": {"mode": "active"}}')
 ;
 
 -- Create all users
@@ -168,7 +168,7 @@ insert into public.agents (id, name, user_id, organization_id, extra) values
   ('a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', 'Creeper', null, '3a182d8d-d6d8-44bd-b021-029915476b8c',
    '{"api_url": "groq", "protocol": "chat_completions", "instructions": "You are a Creeper. You hiss and threaten to explode if anyone gets too close.", "mode": "inactive"}'),
   ('b2c3d4e5-f6a7-8b9c-0d1e-2f3a4b5c6d7e', 'Cartographer', null, '3a182d8d-d6d8-44bd-b021-029915476b8c',
-   '{"api_url": "groq", "protocol": "chat_completions", "instructions": "You are a Cartographer villager. You trade emeralds for maps.", "mode": "active", "tools": [{"name": "calculator", "type": "function", "provider": "local"}, {"type": "http", "label": "Fetch", "config": {"methods": ["GET"], "url": "https://www.wikiloc.com"}, "provider": "local"}]}')
+   '{"api_url": "groq", "protocol": "chat_completions", "instructions": "You are a Cartographer villager. You trade emeralds for maps.", "mode": "active", "response_delay_seconds": 0, "tools": [{"name": "calculator", "type": "function", "provider": "local"}, {"type": "http", "label": "Fetch", "config": {"methods": ["GET"], "url": "https://www.wikiloc.com"}, "provider": "local"}]}')
 ;
 
 -- Organization Addresses - WhatsApp Integration (for Mountain Peaks)
@@ -203,17 +203,17 @@ insert into public.contacts_addresses (organization_id, service, address, extra,
 ;
 
 -- Conversations & Messages (for Mountain Peaks)
-insert into public.conversations (id, organization_id, organization_address, contact_address, service, name, extra) values
-  ('e5f6a7b8-c9d0-1e2f-3a4b-5c6d7e8f9a0b', '3a182d8d-d6d8-44bd-b021-029915476b8c', '318232498042593', '541133525394', 'whatsapp', 'Map trade', '{"default_agent_id": "b2c3d4e5-f6a7-8b9c-0d1e-2f3a4b5c6d7e"}'),
-  ('f6a7b8c9-d0e1-2f3a-4b5c-6d7e8f9a0b1c', '3a182d8d-d6d8-44bd-b021-029915476b8c', '318232498042593', '541133525395', 'whatsapp', 'Emerald exchange', '{"paused": "2024-01-01T10:00:00Z", "default_agent_id": "b2c3d4e5-f6a7-8b9c-0d1e-2f3a4b5c6d7e"}')
+insert into public.conversations (id, organization_id, organization_address, conversation_address, service, name) values
+  ('e5f6a7b8-c9d0-1e2f-3a4b-5c6d7e8f9a0b', '3a182d8d-d6d8-44bd-b021-029915476b8c', '318232498042593', '541133525394', 'whatsapp', 'Map trade'),
+  ('f6a7b8c9-d0e1-2f3a-4b5c-6d7e8f9a0b1c', '3a182d8d-d6d8-44bd-b021-029915476b8c', '318232498042593', '541133525395', 'whatsapp', 'Emerald exchange')
 ;
 
-insert into public.messages (id, conversation_id, organization_id, organization_address, contact_address, service, direction, agent_id, content, status, timestamp) values
-  ('a7b8c9d0-e1f2-3a4b-5c6d-7e8f9a0b1c2d', 'e5f6a7b8-c9d0-1e2f-3a4b-5c6d7e8f9a0b', '3a182d8d-d6d8-44bd-b021-029915476b8c', '318232498042593', '541133525394', 'whatsapp', 'incoming', null,
+insert into public.messages (id, conversation_id, organization_id, organization_address, conversation_address, sender_address, service, agent_id, content, status, timestamp) values
+  ('a7b8c9d0-e1f2-3a4b-5c6d-7e8f9a0b1c2d', 'e5f6a7b8-c9d0-1e2f-3a4b-5c6d7e8f9a0b', '3a182d8d-d6d8-44bd-b021-029915476b8c', '318232498042593', '541133525394', '541133525394', 'whatsapp', null,
    '{"kind": "text", "text": "Do you have any ocean explorer maps?", "type": "text", "version": "1"}', '{"delivered": "2024-01-01T09:00:00Z"}', now() - interval '10 minutes'),
-  ('b8c9d0e1-f2a3-4b5c-6d7e-8f9a0b1c2d3e', 'e5f6a7b8-c9d0-1e2f-3a4b-5c6d7e8f9a0b', '3a182d8d-d6d8-44bd-b021-029915476b8c', '318232498042593', '541133525394', 'whatsapp', 'outgoing', 'b2c3d4e5-f6a7-8b9c-0d1e-2f3a4b5c6d7e',
+  ('b8c9d0e1-f2a3-4b5c-6d7e-8f9a0b1c2d3e', 'e5f6a7b8-c9d0-1e2f-3a4b-5c6d7e8f9a0b', '3a182d8d-d6d8-44bd-b021-029915476b8c', '318232498042593', '541133525394', null, 'whatsapp', 'b2c3d4e5-f6a7-8b9c-0d1e-2f3a4b5c6d7e',
    '{"kind": "text", "text": "Yes, for 13 emeralds and a compass.", "type": "text", "version": "1"}', '{"sent": "2024-01-01T09:01:00Z", "delivered": "2024-01-01T09:01:05Z"}', now() - interval '5 minutes'),
-  ('c9d0e1f2-a3b4-5c6d-7e8f-9a0b1c2d3e4f', 'f6a7b8c9-d0e1-2f3a-4b5c-6d7e8f9a0b1c', '3a182d8d-d6d8-44bd-b021-029915476b8c', '318232498042593', '541133525395', 'whatsapp', 'incoming', null,
+  ('c9d0e1f2-a3b4-5c6d-7e8f-9a0b1c2d3e4f', 'f6a7b8c9-d0e1-2f3a-4b5c-6d7e8f9a0b1c', '3a182d8d-d6d8-44bd-b021-029915476b8c', '318232498042593', '541133525395', '541133525395', 'whatsapp', null,
    '{"kind": "text", "text": "I have 32 rotten flesh to trade.", "type": "text", "version": "1"}', '{"delivered": "2024-01-01T14:00:00Z"}', now() - interval '1 minute')
 ;
 

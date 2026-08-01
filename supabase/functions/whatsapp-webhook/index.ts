@@ -752,8 +752,10 @@ async function processMessage(request: Request): Promise<Response> {
             external_id: webhookMessage.id,
             service: "whatsapp" as const,
             organization_address,
-            contact_address,
-            direction: "incoming" as const,
+            // Direct chats only on WhatsApp Cloud: the contact is both the
+            // conversation's peer and the author.
+            conversation_address: contact_address,
+            sender_address: contact_address,
             content,
             timestamp: new Date(webhookMessage.timestamp * 1000).toISOString(),
           };
@@ -770,8 +772,8 @@ async function processMessage(request: Request): Promise<Response> {
             external_id: status.id,
             service: "whatsapp",
             organization_address,
-            contact_address: status.recipient_id ?? status.recipient_user_id,
-            direction: "outgoing",
+            conversation_address: status.recipient_id ??
+              status.recipient_user_id,
             content: {} as OutgoingMessage, // this will get merged (it won't overwrite)
             status: {
               [status.status]: new Date(
@@ -866,8 +868,7 @@ async function processMessage(request: Request): Promise<Response> {
             external_id: webhookMessage.id,
             service: "whatsapp" as const,
             organization_address,
-            contact_address,
-            direction: "outgoing" as const,
+            conversation_address: contact_address,
             content: content as OutgoingMessage, // Incoming are a superset of outgoing, except for templates
             status: {
               sent: new Date(webhookMessage.timestamp * 1000).toISOString(),
@@ -1001,8 +1002,7 @@ async function processMessage(request: Request): Promise<Response> {
                     external_id: webhookMessage.id,
                     service: "whatsapp" as const,
                     organization_address,
-                    contact_address,
-                    direction: "outgoing" as const,
+                    conversation_address: contact_address,
                     content: content as OutgoingMessage, // Incoming is a superset of outgoing, except for templates
                     status: {
                       [status]: new Date(
@@ -1020,8 +1020,8 @@ async function processMessage(request: Request): Promise<Response> {
                     external_id: webhookMessage.id,
                     service: "whatsapp" as const,
                     organization_address,
-                    contact_address,
-                    direction: "incoming" as const,
+                    conversation_address: contact_address,
+                    sender_address: contact_address,
                     content, // Incoming is a superset of outgoing, except for templates
                     status: {
                       [status]: new Date(

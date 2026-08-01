@@ -5,12 +5,7 @@ create table public.messages (
   conversation_id uuid not null,
   id uuid default gen_random_uuid() not null,
   external_id text,
-  -- Deprecated for READERS (ask sender_address instead); still written, and
-  -- still not null — before_insert_on_messages derives it for writers that
-  -- send the new addressing only.
-  direction public.direction not null,
   agent_id uuid, -- internal sender (should be not null for internal and outgoing)
-  contact_address text, -- external sender (should be not null for incoming)
   -- denormalized properties
   service public.service not null,
   organization_address text not null,
@@ -20,9 +15,7 @@ create table public.messages (
   -- timeline. Soft reference like content.re_message_id — not a FK, so it
   -- tolerates out-of-order arrival and out-of-window roots.
   thread_id text,
-  -- Unified peer addressing (transition away from direction + contact_address;
-  -- both sides kept in sync by before_insert_on_messages until readers migrate
-  -- and the legacy columns get dropped):
+  -- Unified peer addressing:
   -- conversation_address — the peer the conversation is with (individual or
   --   group/channel). Soft reference, like thread_id.
   -- sender_address — the CONTACT who authored the message (a WhatsApp
@@ -187,11 +180,10 @@ when (
     'media', 'reaction', 'location', 'contacts', 'template'
   )
   -- Record-only rows: content.internal is the declared marker (a tool trace,
-  -- an agent error, an internal note), content.tool the legacy one. Both are
-  -- also stripped of status.pending by before_insert, so this line is belt
-  -- and suspenders — stated here because this WHEN clause is the sendability
-  -- rule, and the rule should not depend on a strip having happened.
-  and new.content -> 'tool' is null
+  -- an agent error, an internal note). Also stripped of status.pending by
+  -- before_insert, so this line is belt and suspenders — stated here because
+  -- this WHEN clause is the sendability rule, and the rule should not depend
+  -- on a strip having happened.
   and new.content ->> 'internal' is null
 )
 execute function public.dispatcher_edge_function();
@@ -212,11 +204,14 @@ on public.messages
 for each row
 execute function public.notify_webhook();
 
-create trigger preserve_direction
+-- Alphabetical order matters: `preserve_addressing` must run before the
+-- `set_content`/`set_status` merges so the merge never sees a pending key on
+-- an internal row.
+create trigger preserve_addressing
 before update
 on public.messages
 for each row
-execute function public.preserve_message_direction();
+execute function public.preserve_message_addressing();
 
 create trigger set_message
 before update

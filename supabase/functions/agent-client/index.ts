@@ -25,7 +25,6 @@ import { z } from "zod";
 import Ajv2020 from "ajv";
 import type { AgentRowWithExtra, ResponseContext } from "./protocols/base.ts";
 import { getFileMetadata } from "../_shared/media.ts";
-import { type MessageRowV0, toV1 } from "../_shared/messages-v0.ts";
 
 const sanitizeLabel = (label: string) => {
   return label
@@ -137,14 +136,13 @@ Deno.serve(async (req) => {
 
   const incoming = ((await req.json()) as WebhookPayload<MessageRow>).record!;
 
-  // RETRIEVE CONVERSATION + ORGANIZATION + CONTACT + AGENTS (via organization, one-hop join)
+  // RETRIEVE CONVERSATION + ORGANIZATION + AGENTS (via organization, one-hop join)
 
   const { data: conv } = await client
     .from("conversations")
     .select(`
       *,
-      organizations (*, agents (*)),
-      contacts_addresses (*, contacts (*))
+      organizations (*, agents (*))
     `)
     .eq("id", incoming.conversation_id)
     .single()
@@ -156,14 +154,12 @@ Deno.serve(async (req) => {
 
   const {
     organizations: org,
-    contacts_addresses: contact_address,
     ...conversation
   } = conv;
 
   log.info("Agent client context", {
     conversation_id: conv.id,
     has_org: !!org,
-    has_contact_address: !!contact_address,
   });
 
   const organization_id = org.id;
@@ -173,6 +169,23 @@ Deno.serve(async (req) => {
   }
 
   const { agents, ...organization } = org;
+
+  // RETRIEVE CONTACT
+  //
+  // conversation_address is a soft reference (the FK went with the legacy
+  // contact_address column), so the contact comes from its own query: on a
+  // direct chat the conversation's address IS the contact's address, and a
+  // group address simply matches no contacts_addresses row — same outcome as
+  // the old embed returning null.
+
+  const { data: contact_address } = await client
+    .from("contacts_addresses")
+    .select("*, contacts (*)")
+    .eq("organization_id", conv.organization_id)
+    .eq("service", conv.service)
+    .eq("address", conv.conversation_address)
+    .maybeSingle()
+    .throwOnError();
 
   let contact: ContactRow | undefined;
 
@@ -256,11 +269,10 @@ Deno.serve(async (req) => {
     .limit(MESSAGES_QUANTITY_LIMIT) // Size constraint for the conversation.
     .throwOnError();
 
+  // v0 is out of support: rows that predate the v1 content schema are
+  // simply not part of the context window any more.
   const messages = messagesMixedVersions
-    .map((m) =>
-      m.content.version === "1" ? m : toV1(m as unknown as MessageRowV0)
-    )
-    .filter(Boolean) as MessageRow[];
+    .filter((m) => m.content.version === "1") as MessageRow[];
 
   // Query was done in descending order to apply the limit.
   // We need the messages in chronological order, though.
@@ -338,8 +350,6 @@ Deno.serve(async (req) => {
       service: conv.service,
       organization_address: conv.organization_address,
       conversation_address: conv.conversation_address,
-      contact_address: conv.contact_address,
-      direction: "outgoing",
       agent_id: agent.id,
       content: {
         version: "1",
@@ -806,8 +816,6 @@ Deno.serve(async (req) => {
               service: conv.service,
               organization_address: conv.organization_address,
               conversation_address: conv.conversation_address,
-              contact_address: conv.contact_address,
-              direction: "outgoing" as const,
               agent_id: agent.id,
               content: {
                 version: "1" as const,
@@ -820,8 +828,6 @@ Deno.serve(async (req) => {
               service: conv.service,
               organization_address: conv.organization_address,
               conversation_address: conv.conversation_address,
-              contact_address: conv.contact_address,
-              direction: "internal" as const,
               agent_id: agent.id,
               content: {
                 version: "1" as const,
@@ -849,11 +855,9 @@ Deno.serve(async (req) => {
           service: conv.service,
           organization_address: conv.organization_address,
           conversation_address: conv.conversation_address,
-          contact_address: conv.contact_address,
           // Agent errors are record-only (extra.error_messages_direction is
           // deprecated — dispatching errors to the end user is gone; OpenBSP
           // is a communication layer and internal rows never dispatch).
-          direction: "internal" as const,
           agent_id: agent.id,
           content: {
             version: "1" as const,
@@ -880,7 +884,6 @@ Deno.serve(async (req) => {
         conversation_id: conv.id,
         organization_address: conv.organization_address,
         conversation_address: conv.conversation_address,
-        contact_address: conv.contact_address,
         // Disambiguate by milliseconds index to ensure the insertion order.
         timestamp: new Date(Date.now() + index).toISOString(),
       }));

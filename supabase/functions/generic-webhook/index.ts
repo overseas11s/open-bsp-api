@@ -235,18 +235,20 @@ async function handle(req: Request): Promise<Response> {
   // the Meta webhooks: the row exists (the dispatcher inserted it), so the
   // upsert only merges status. See whatsapp-webhook for the rationale on
   // upserting statuses and messages in two separate statements.
-  // Connectors speak the unified addressing natively: conversation_address =
-  // the chat, contact_address = the individual sender (kept for legacy
-  // readers). Rows pass through; the BEFORE INSERT trigger derives whatever
-  // an older connector build omits.
+  // The connector protocol still speaks direction + contact_address; the
+  // database no longer has either column, so THIS is where they translate
+  // (the DB-side compat the connectors used to lean on is gone):
+  //   conversation_address ??= contact_address (direct chats — a group JID
+  //     is always stated)
+  //   sender_address = the author, which is the per-message contact on an
+  //     incoming row and nobody on an outgoing one.
   const statuses: MessageInsert[] = (batch.statuses ?? []).map((status) => ({
     organization_id,
     service,
     organization_address,
-    direction: "outgoing" as const,
     external_id: status.external_id,
-    contact_address: status.contact_address,
-    conversation_address: status.conversation_address,
+    conversation_address: status.conversation_address ??
+      status.contact_address,
     content: {} as OutgoingMessage, // this will get merged (it won't overwrite)
     status: status.status as OutgoingStatus,
   }));
@@ -258,8 +260,8 @@ async function handle(req: Request): Promise<Response> {
         service,
         organization_address,
         external_id: message.external_id,
-        contact_address: message.contact_address,
-        conversation_address: message.conversation_address,
+        conversation_address: message.conversation_address ??
+          message.contact_address,
         thread_id: message.thread_id,
         timestamp: message.timestamp,
       };
@@ -270,7 +272,7 @@ async function handle(req: Request): Promise<Response> {
       return message.direction === "incoming"
         ? {
           ...base,
-          direction: "incoming" as const,
+          sender_address: message.contact_address,
           content: message.content as unknown as IncomingMessage,
           ...(message.status && {
             status: message.status as IncomingStatus,
@@ -278,7 +280,6 @@ async function handle(req: Request): Promise<Response> {
         }
         : {
           ...base,
-          direction: "outgoing" as const,
           content: message.content as unknown as OutgoingMessage,
           ...(message.status && {
             status: message.status as OutgoingStatus,

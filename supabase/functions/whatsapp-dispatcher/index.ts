@@ -6,6 +6,7 @@ import {
   type EndpointMessageResponse,
   type EndpointStatus,
   type EndpointStatusResponse,
+  type IncomingStatus,
   type MessageRow,
   type OutgoingMessage,
   type WebhookPayload,
@@ -421,9 +422,11 @@ Deno.serve(async (req) => {
 
   log.info(`Dispatching message ${message.id}`, message);
 
-  if (!message.contact_address) {
+  // The recipient is the conversation's peer. WhatsApp Cloud only has direct
+  // chats, so conversation_address is the contact.
+  if (!message.conversation_address) {
     throw new Error(
-      `Cannot dispatch message with id ${message.id} because contact_address is missing`,
+      `Cannot dispatch message with id ${message.id} because conversation_address is missing`,
     );
   }
 
@@ -440,26 +443,29 @@ Deno.serve(async (req) => {
   let to: string | undefined;
   let recipient: string | undefined;
 
-  // Resolve the recipient identifiers. The contact_address is either a BSUID or
-  // a phone number; the stored contact may also carry a phone in extra.
+  // Resolve the recipient identifiers. The address is either a BSUID or a
+  // phone number; the stored contact may also carry a phone in extra.
   // TODO: deprecate when phone numbers are not used anymore as contact addresses
-  if (isBsuid(message.contact_address)) {
+  if (isBsuid(message.conversation_address)) {
     const { data: contactAddress } = await client
       .from("contacts_addresses")
       .select("phone_number:extra->>phone_number")
       .eq("organization_id", message.organization_id)
       .eq("service", "whatsapp")
-      .eq("address", message.contact_address)
+      .eq("address", message.conversation_address)
       .single()
       .throwOnError();
 
     to = contactAddress.phone_number;
-    recipient = message.contact_address;
+    recipient = message.conversation_address;
   } else {
-    to = message.contact_address;
+    to = message.conversation_address;
   }
 
-  if (message.direction === "outgoing") {
+  // Authorship decides the job: a row the account itself wrote (sender null)
+  // is a send; a contact's row only ever comes here for read receipts and
+  // typing indicators.
+  if (message.sender_address === null) {
     try {
       const patchedMessage = await uploadMediaItem({
         message,
@@ -540,20 +546,23 @@ Deno.serve(async (req) => {
         .eq("id", message.id)
         .throwOnError();
     }
-  } else if (message.direction === "incoming") {
+  } else {
+    // A contact's row: the only statuses that dispatch back are ours to give.
+    const status = message.status as IncomingStatus;
+
     let readReceipt = false;
     let typingIndicator = false;
 
     if (
-      message.status.read &&
-      Date.now() - +new Date(message.status.read) <= 60 * 1000
+      status.read &&
+      Date.now() - +new Date(status.read) <= 60 * 1000
     ) {
       readReceipt = true;
     }
 
     if (
-      message.status.typing &&
-      Date.now() - +new Date(message.status.typing) <= 60 * 1000
+      status.typing &&
+      Date.now() - +new Date(status.typing) <= 60 * 1000
     ) {
       typingIndicator = true;
     }
@@ -588,10 +597,6 @@ Deno.serve(async (req) => {
       phone_number_id: message.organization_address,
       access_token,
     });
-  } else {
-    throw new Error(
-      `Cannot dispatch message with id ${message.id} because its direction is not 'outgoing' nor 'incoming'.`,
-    );
   }
 
   return new Response();

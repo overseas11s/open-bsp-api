@@ -65,42 +65,21 @@ export type Database = MergeDeep<
             extra?: ConversationExtra;
           };
         };
+        // No row-level discriminant any more — `direction` is gone. Who
+        // authored a row is `sender_address` (a contact, or null = the
+        // account itself); record-only rows carry `content.internal` (see
+        // isInternal/isToolTrace). The content union is therefore plain:
+        // narrow via content.type/kind, or via the guards.
         messages: {
-          Row:
-            | {
-              direction: "incoming";
-              content: IncomingMessage;
-              status: IncomingStatus;
-            }
-            | {
-              direction: "internal";
-              content: InternalMessage;
-              status: IncomingStatus;
-            }
-            | {
-              direction: "outgoing";
-              content: OutgoingMessage;
-              status: OutgoingStatus;
-            };
-          Insert:
-            | {
-              conversation_id?: string;
-              direction: "incoming";
-              content: IncomingMessage;
-              status?: IncomingStatus;
-            }
-            | {
-              conversation_id?: string;
-              direction: "internal";
-              content: InternalMessage;
-              status?: IncomingStatus;
-            }
-            | {
-              conversation_id?: string;
-              direction: "outgoing";
-              content: OutgoingMessage;
-              status?: OutgoingStatus;
-            };
+          Row: {
+            content: IncomingMessage | InternalMessage | OutgoingMessage;
+            status: IncomingStatus | OutgoingStatus;
+          };
+          Insert: {
+            conversation_id?: string;
+            content: IncomingMessage | InternalMessage | OutgoingMessage;
+            status?: IncomingStatus | OutgoingStatus;
+          };
         };
         contacts: {
           Row: {
