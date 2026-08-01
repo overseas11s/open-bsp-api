@@ -12,7 +12,11 @@
 // Contract (single endpoint on the connector, bearer-authenticated):
 //
 //   POST {url}/dispatch  { type: "message", record: MessageRow, media_url? }
-//     → 2xx { external_id: string, status?: "sent" | "accepted" }
+//     → 2xx { external_id: string, status?: "accepted" | "sent" }
+//       Defaults to `accepted` — the connector took the message, same as
+//       every other dispatcher says. A connector that can tell the two apart
+//       may answer `sent` instead, and report `delivered`/`read` later
+//       through the statuses batch.
 //     → 4xx permanent failure (message marked failed, no retry)
 //     → 5xx transient failure (kept pending, retried by the dispatch cron)
 //
@@ -138,7 +142,7 @@ Deno.serve(async (req) => {
         client,
         messageId: message.id,
         externalId: result.external_id,
-        status: { [result.status || "sent"]: new Date().toISOString() },
+        status: { [result.status || "accepted"]: new Date().toISOString() },
       });
     } catch (error) {
       // Network failures (connector down/unreachable) are transient.

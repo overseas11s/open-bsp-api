@@ -4,8 +4,9 @@
 // Mapping rules (see slack-management/index.ts header for the address model):
 //   - conversation_address = channel id (D…/G…/C…), anchored to the team.
 //   - sender_address = the Slack user id (a contact reference); agent_id set
-//     when the sender is a linked member. Mirrored rows carry a final status
-//     (delivered) — never status.pending, so no automation fires.
+//     when the sender is a linked member. Mirrored rows are armed like any
+//     other inbound message ({pending, sent}); what keeps the AI out of a
+//     workspace is the team-chat rule in agent-client, not the status.
 //   - Sends made through OpenBSP come back as message events too; the
 //     external_id upsert merges them into the dispatcher's row and FILLS its
 //     sender_address (null → the member who sent — fill-once in
@@ -475,8 +476,22 @@ async function onMessage(
     direction: "incoming" as const,
     thread_id: event.thread_ts,
     timestamp: tsToIso(event.ts),
+    // Same shape as every other inbound message, and one shape for two cases.
+    //
+    // `pending` is what arms the platform: the media preprocessor on file
+    // messages, and the mark-as-read path. Slack used to opt out of both by
+    // writing a final status, which made it the only service whose files were
+    // never preprocessed. The AI is kept out by a rule now (team chat), not by
+    // an accident of what this webhook happened to write.
+    //
+    // `sent` is the receipt. On a colleague's message it says when Slack
+    // stamped it; on the echo of a member send it lands on the row the
+    // dispatcher already stamped `accepted` — the upsert conflicts on
+    // external_id and merges — which is the delivery confirmation Slack never
+    // gave us before.
     status: {
-      delivered: tsToIso(event.event_ts ?? event.ts),
+      pending: new Date().toISOString(),
+      sent: tsToIso(event.event_ts ?? event.ts),
     } as IncomingStatus,
   };
 
@@ -616,7 +631,11 @@ async function onReaction(
       direction: "incoming" as const,
       external_id: externalId(ctx.team, channel, event.event_ts ?? ts),
       timestamp: tsToIso(event.event_ts ?? ts),
-      status: { delivered: tsToIso(event.event_ts ?? ts) } as IncomingStatus,
+      // Same shape as an inbound message — see the comment there.
+      status: {
+        pending: new Date().toISOString(),
+        sent: tsToIso(event.event_ts ?? ts),
+      } as IncomingStatus,
       content: {
         version: "1",
         type: "data",

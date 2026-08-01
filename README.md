@@ -1074,7 +1074,6 @@ This event-driven flow ensures that each component is decoupled and scalable.
 
 ```ts
 export type OrganizationExtra = {
-  welcome_message?: string; // sent on the first inbound message, AI or not
   media_preprocessing?: {
     mode?: "active" | "inactive";
     model?: "gemini-2.5-pro" | "gemini-2.5-flash"; // default: gemini-2.5-flash
@@ -1106,7 +1105,7 @@ Set by the `role` column (`agents.role`); only owners may grant one.
 
 An agent with no `user_id` is an AI agent — nobody's membership. It is chosen to
 answer when it is the oldest active one in the organization; AI agents do not
-answer in `local` (team chat).
+answer in team chat (`local`, `slack`), only in conversations with contacts.
 
 #### AI
 
@@ -1115,6 +1114,7 @@ export type AgentExtra = {
   mode?: "active" | "draft" | "inactive";
   role?: string; // the persona, not access control — that is the `role` column
   response_delay_seconds?: number; // debounce a burst of messages; default: 3
+  welcome_message?: string; // sent once, on the first inbound message
   description?: string;
   api_url?: "openai" | "anthropic" | "google" | "groq" | string; // default: openai
   api_key?: string; // default: provider env var, i.e. OPENAI_API_KEY

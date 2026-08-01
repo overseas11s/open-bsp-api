@@ -17,8 +17,6 @@ export type PreprocessingConfig = {
 };
 
 export type OrganizationExtra = {
-  /** Sent on the first inbound message of a conversation, AI agent or not. */
-  welcome_message?: string;
   media_preprocessing?: PreprocessingConfig;
   error_messages_direction?: "internal" | "outgoing";
 };
@@ -232,6 +230,13 @@ export type AIAgentExtra = {
    * setting; it is the agent's own behaviour.
    */
   response_delay_seconds?: number;
+  /**
+   * Sent once, on the first inbound message of a conversation, before the
+   * agent is asked anything. Also was an organization setting — which meant
+   * an organization with no AI agent could still greet; now the greeting
+   * belongs to whoever would have answered.
+   */
+  welcome_message?: string;
   description?: string;
   api_url?: string;
   api_key?: string;

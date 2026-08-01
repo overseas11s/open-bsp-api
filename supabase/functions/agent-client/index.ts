@@ -4,6 +4,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import {
   type ContactRow,
   createUnsecureClient,
+  type Database,
   type DataPart,
   type InternalMessage,
   isToolTrace,
@@ -46,6 +47,18 @@ export type AgentTool = {
   // deno-lint-ignore no-explicit-any
   config?: any;
 };
+
+/**
+ * Internal comms: the services where the peer is a colleague, not a contact.
+ * `discord` and `teams` are in the service enum but have no ingestion yet —
+ * listed so they start on the right side of the rule when they arrive.
+ */
+const TEAM_CHAT_SERVICES = new Set<Database["public"]["Enums"]["service"]>([
+  "local",
+  "slack",
+  "discord",
+  "teams",
+]);
 
 const MESSAGES_TIME_LIMIT = 7 * 24 * 60 * 60 * 1000; // 7 days
 const MESSAGES_QUANTITY_LIMIT = 50;
@@ -184,14 +197,18 @@ Deno.serve(async (req) => {
 
   // NO AI IN TEAM CHAT
   //
-  // `local` is where colleagues talk to each other. An AI agent answering
-  // there would need trigger rules this codebase does not have — who it
-  // answers, when, and without replying to every message in the room. The
-  // insert trigger cannot reach us here anyway (it arms on sender_address,
-  // and a colleague is not a contact); this makes the rule explicit rather
-  // than a consequence.
+  // Team chat is where colleagues talk to each other, and `local` is only the
+  // half we host: a mirrored Slack workspace is the same conversation with
+  // someone else's servers in the middle. An AI agent answering there would
+  // need trigger rules this codebase does not have — who it answers, when, and
+  // without replying to every message in the room.
+  //
+  // For `local` the insert trigger cannot even reach us (it arms on
+  // sender_address, and a colleague is not a contact). For Slack it can, now
+  // that its rows carry status.pending like every other inbound message — so
+  // this is a rule, not a restatement.
 
-  if (conv.service === "local") {
+  if (TEAM_CHAT_SERVICES.has(conv.service)) {
     log.info(`Conversation ${conv.id} is team chat. Skipping response.`);
 
     return new Response("ok", { headers: corsHeaders });
@@ -295,14 +312,23 @@ Deno.serve(async (req) => {
 
   log.info("Contact request", messages.at(-1)?.content);
 
+  // The agent was chosen before the delay, above.
+
+  if (!agent) {
+    log.info(
+      `No active AI agents found for conversation ${conv.id}. Skipping response.`,
+    );
+    return new Response("ok", { headers: corsHeaders });
+  }
+
   // WELCOME MESSAGE
   //
-  // Stays an organization setting, and stays ahead of the agent check: it
-  // fires on the first contact whether or not the organization has an AI
-  // agent at all, which is how several of them use it.
+  // The agent's, not the organization's — so it needs an agent, and an
+  // organization without one no longer greets anyone. Still ahead of asking
+  // the agent anything: it replaces the first answer rather than preceding it.
 
   if (
-    org.extra.welcome_message &&
+    agent.extra.welcome_message &&
     !messages.some(spokenByUs)
   ) {
     const outgoing: MessageInsert = {
@@ -313,11 +339,12 @@ Deno.serve(async (req) => {
       conversation_address: conv.conversation_address,
       contact_address: conv.contact_address,
       direction: "outgoing",
+      agent_id: agent.id,
       content: {
         version: "1",
         type: "text",
         kind: "text",
-        text: org.extra.welcome_message,
+        text: agent.extra.welcome_message,
       },
     };
 
@@ -328,15 +355,6 @@ Deno.serve(async (req) => {
       .insert(outgoing)
       .throwOnError();
 
-    return new Response("ok", { headers: corsHeaders });
-  }
-
-  // The agent was chosen before the delay, above.
-
-  if (!agent) {
-    log.info(
-      `No active AI agents found for conversation ${conv.id}. Skipping response.`,
-    );
     return new Response("ok", { headers: corsHeaders });
   }
 

@@ -130,23 +130,39 @@ on public.messages
 for each row
 execute function public.before_insert_on_messages();
 
+-- Team chat is excluded here rather than left to agent-client, which refuses
+-- it anyway: a mirrored workspace can be thousands of messages a day, and
+-- every one of them would spend an invocation to be told no. `local` cannot
+-- arm this trigger at all (a colleague is not a contact, so sender_address is
+-- null), but it is named for the same reason discord and teams are not —
+-- saying what the rule is beats relying on why it cannot happen.
 create trigger handle_incoming_message_to_agent
 after insert
 on public.messages
 for each row
 when (
   new.sender_address is not null
+  and new.service not in ('local'::public.service, 'slack'::public.service)
   and (new.status ->> 'pending') is not null
 )
 execute function public.edge_function('/agent-client', 'post');
 
+-- Team chat is excluded, and `local` was never the whole of it: reading a
+-- colleague's message is not a receipt owed to anyone outside, and on Slack
+-- there is no user-token API to deliver one with. It also matters now that
+-- Slack rows carry status.pending like every other inbound message — without
+-- this, every read would POST to slack-dispatcher for nothing.
+--
+-- Internal comms have a second, unanswered question anyway: a read is by ONE
+-- of several members, so "the message was read" is not a fact about the
+-- conversation. See TODO.
 create trigger handle_mark_as_read_to_dispatcher
 after update
 on public.messages
 for each row
 when (
   new.sender_address is not null
-  and new.service <> 'local'::public.service
+  and new.service not in ('local'::public.service, 'slack'::public.service)
   and (
     (old.status ->> 'read') <> (new.status ->> 'read')
     or (old.status ->> 'typing') <> (new.status ->> 'typing')

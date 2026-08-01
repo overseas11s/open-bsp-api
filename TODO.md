@@ -48,9 +48,19 @@ Both columns are still WRITTEN everywhere — the rule is only that nothing new
 should READ them.
 
 - [ ] `internal` has no successor. `sender_address` replaces incoming/outgoing,
-      but nothing in the new addressing says "recorded, never sent". Decide the
-      successor (a content kind outside the dispatch whitelist? an explicit
-      status?) before the column can go.
+      but nothing in the new addressing says "recorded, never sent".
+
+      "No `status.pending`" is the closest candidate and it is already how the
+      rule is ENFORCED (before_insert strips the key from internal rows, and
+      nothing unarmed can dispatch) — but it does not IDENTIFY them: echoes and
+      history imports also arrive with no pending and are genuinely outgoing.
+      The shape that separates them is an EMPTY status: `{}` for a recorded
+      row, `{sent}`/`{read}` for an echo. Workable, and subtle enough to want
+      stating in the schema rather than inferred by each reader.
+
+      Note it only answers dispatch. A reader still wants to know a tool trace
+      from an agent error from a real send: `content.tool` covers the first,
+      nothing covers the second.
 
 - [ ] The dispatchers and webhooks still branch on `direction`, and the
       `MessageRow` union discriminates on it. agent-client and the dispatch cron
@@ -58,11 +68,19 @@ should READ them.
 
 ## AI agents (frozen; on their way out)
 
-- [ ] Which conversations the AI answers is implicit. The trigger arms on
-      `status.pending`, which also means "needs dispatch": WhatsApp/Instagram
-      inbound arms it by omitting `status` and inheriting the column default,
-      Slack stays inert only because its webhook writes `{delivered}`. Nothing
-      states the rule per service, conversation or agent.
+- [ ] Testing an agent from the UI was a `local` conversation, and team chat is
+      now closed to the AI — so that flow is gone (1,104 `local` inbound
+      messages in production say it was used). A test conversation would be the
+      single exception to the rule, and it needs a shape first: a conversation
+      `type`? a flag on `conversations.extra` (there is a commented-out
+      `test_run` there already)? Whatever it is, it must not be something a
+      member can set on a real team conversation to make the AI join it.
+
+- [ ] Read receipts in team chat mean something else. On WhatsApp "read" is one
+      fact owed to one peer; in an internal room it is per member, several of
+      them, and owed to nobody outside. `conversations_agents` is where a
+      per-member read would live. Both triggers currently skip team chat
+      entirely, which is right but is not the answer.
 
 ## General
 
