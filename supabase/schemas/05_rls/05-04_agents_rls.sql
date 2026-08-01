@@ -17,9 +17,9 @@
 -- Only owners grant roles.
 --
 -- Two of the nine policies this replaces went with AI agents ceasing to be a
--- category RLS knows about — `ai` is deprecated and no rule consults it, so
--- admins reach human and AI agents through one policy instead of a separate
--- pair. A third went with invitations becoming their own table: "members can
+-- category RLS knows about — the `ai` flag is gone, and `user_id is null` says
+-- the same thing, so admins reach human and AI agents through one policy
+-- instead of a separate pair. A third went with invitations becoming their own table: "members can
 -- read themselves" existed because an invitee held an agents row in an
 -- organization they had not joined, out of reach of the org-wide read below.
 -- By the time such a row exists now, they are a member.
@@ -47,7 +47,7 @@ using (
 )
 with check (
   user_id = (select auth.uid())
-  and public.agent_identity_and_role_unchanged(id, user_id, organization_id, ai, role)
+  and public.agent_identity_and_role_unchanged(id, user_id, organization_id, role)
 );
 
 -- Admins maintain the roster: renaming a colleague, retiring an AI agent's
@@ -65,7 +65,7 @@ with check (
   organization_id in (
     select public.get_authorized_orgs('admin')
   )
-  and public.agent_identity_and_role_unchanged(id, user_id, organization_id, ai, role)
+  and public.agent_identity_and_role_unchanged(id, user_id, organization_id, role)
 );
 
 -- Owners additionally set roles, create AI agents and remove members. Split by
@@ -102,7 +102,7 @@ with check (
   organization_id in (
     select public.get_authorized_orgs('owner')
   )
-  and public.agent_identity_unchanged(id, user_id, organization_id, ai)
+  and public.agent_identity_unchanged(id, user_id, organization_id)
 );
 
 create policy "owners can delete their orgs agents"

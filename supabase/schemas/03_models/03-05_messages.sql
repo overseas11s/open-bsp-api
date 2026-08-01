@@ -5,6 +5,9 @@ create table public.messages (
   conversation_id uuid not null,
   id uuid default gen_random_uuid() not null,
   external_id text,
+  -- Deprecated for READERS (ask sender_address instead); still written, and
+  -- still not null — before_insert_on_messages derives it for writers that
+  -- send the new addressing only.
   direction public.direction not null,
   agent_id uuid, -- internal sender (should be not null for internal and outgoing)
   contact_address text, -- external sender (should be not null for incoming)

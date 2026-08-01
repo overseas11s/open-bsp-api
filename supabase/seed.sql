@@ -126,21 +126,29 @@ insert into auth.identities (id, user_id, provider_id, identity_data, provider, 
   ('3a7f5ef1-8e7d-8e0f-2a3b-4c5d6e7f8a9b', '3a7f5ef1-8e7d-8e0f-2a3b-4c5d6e7f8a9b', '3a7f5ef1-8e7d-8e0f-2a3b-4c5d6e7f8a9b', '{"sub": "3a7f5ef1-8e7d-8e0f-2a3b-4c5d6e7f8a9b", "email":"zombie@craft.com"}', 'email', timezone('utc'::text, now()), timezone('utc'::text, now()), timezone('utc'::text, now()))
 ;
 
--- Create agents (org memberships and invitations)
-insert into public.agents (name, user_id, organization_id, ai, extra) values
+-- Create agents (org memberships). A member has a user_id; an agent without
+-- one is an AI agent (see the AI Agents block below). Invitations are rows in
+-- public.invitations now, not agents.
+insert into public.agents (name, user_id, organization_id, role) values
   -- Mountain Peaks (Org 1) - Neutral creatures - Complete setup
-  ('Goat', '185f2f83-d63a-4c9b-b4a0-7e4a885799e2', '3a182d8d-d6d8-44bd-b021-029915476b8c', false, '{"role": "owner"}'),
-  ('Spider', '7c8a9b2d-4e3f-5a6b-8c9d-0e1f2a3b4c5d', '3a182d8d-d6d8-44bd-b021-029915476b8c', false, '{"role": "admin"}'),
-  ('Enderman', '9d0e1f2a-3b4c-5d6e-7f8a-9b0c1d2e3f4a', '3a182d8d-d6d8-44bd-b021-029915476b8c', false, '{"role": "member"}'),
-  ('Bat', null, '3a182d8d-d6d8-44bd-b021-029915476b8c', false, '{"role": "member", "invitation": {"organization_name": "Mountain Peaks", "email": "bat@craft.com", "status": "pending"}}'),
-  
+  ('Goat', '185f2f83-d63a-4c9b-b4a0-7e4a885799e2', '3a182d8d-d6d8-44bd-b021-029915476b8c', 'owner'),
+  ('Spider', '7c8a9b2d-4e3f-5a6b-8c9d-0e1f2a3b4c5d', '3a182d8d-d6d8-44bd-b021-029915476b8c', 'admin'),
+  ('Enderman', '9d0e1f2a-3b4c-5d6e-7f8a-9b0c1d2e3f4a', '3a182d8d-d6d8-44bd-b021-029915476b8c', 'member'),
+
   -- Plains (Org 2) - Passive creatures - Owner + Goat as admin
-  ('Sheep', '296f4de0-7f6c-7d9e-1f2a-3b4c5d6e7f8a', '4b293e9e-5f4a-5b7c-9d0e-1f2a3b4c5d6e', false, '{"role": "owner"}'),
-  ('Goat', '185f2f83-d63a-4c9b-b4a0-7e4a885799e2', '4b293e9e-5f4a-5b7c-9d0e-1f2a3b4c5d6e', false, '{"role": "admin"}'),
-  
-  -- Dark Forest (Org 3) - Aggressive creatures - Owner + pending admin invitation for Goat
-  ('Zombie', '3a7f5ef1-8e7d-8e0f-2a3b-4c5d6e7f8a9b', '5c3a4f0f-6e5b-6c8d-0e1f-2a3b4c5d6e7f', false, '{"role": "owner"}'),
-  ('Goat', '185f2f83-d63a-4c9b-b4a0-7e4a885799e2', '5c3a4f0f-6e5b-6c8d-0e1f-2a3b4c5d6e7f', false, '{"role": "admin", "invitation": {"organization_name": "Dark Forest", "email": "goat@craft.com", "status": "pending"}}')
+  ('Sheep', '296f4de0-7f6c-7d9e-1f2a-3b4c5d6e7f8a', '4b293e9e-5f4a-5b7c-9d0e-1f2a3b4c5d6e', 'owner'),
+  ('Goat', '185f2f83-d63a-4c9b-b4a0-7e4a885799e2', '4b293e9e-5f4a-5b7c-9d0e-1f2a3b4c5d6e', 'admin'),
+
+  -- Dark Forest (Org 3) - Aggressive creatures - Owner only; Goat is invited
+  ('Zombie', '3a7f5ef1-8e7d-8e0f-2a3b-4c5d6e7f8a9b', '5c3a4f0f-6e5b-6c8d-0e1f-2a3b4c5d6e7f', 'owner')
+;
+
+-- Pending invitations (keyed by email; accept_invitation mints the agent)
+insert into public.invitations (organization_id, email, role, invited_by) values
+  ('3a182d8d-d6d8-44bd-b021-029915476b8c', 'bat@craft.com', 'member',
+   (select id from public.agents where name = 'Goat' and organization_id = '3a182d8d-d6d8-44bd-b021-029915476b8c')),
+  ('5c3a4f0f-6e5b-6c8d-0e1f-2a3b4c5d6e7f', 'goat@craft.com', 'admin',
+   (select id from public.agents where name = 'Zombie' and organization_id = '5c3a4f0f-6e5b-6c8d-0e1f-2a3b4c5d6e7f'))
 ;
 
 -- API Keys (for Mountain Peaks)
@@ -155,11 +163,11 @@ insert into public.onboarding_tokens (name, organization_id, expires_at, status,
   ('Witch Hut Supply', '3a182d8d-d6d8-44bd-b021-029915476b8c', now() + interval '30 days', 'used', now() - interval '2 days', 'whatsapp')
 ;
 
--- AI Agents (for Mountain Peaks)
-insert into public.agents (id, name, user_id, organization_id, ai, extra) values
-  ('a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', 'Creeper', null, '3a182d8d-d6d8-44bd-b021-029915476b8c', true, 
+-- AI Agents (for Mountain Peaks) — an agent with no user_id
+insert into public.agents (id, name, user_id, organization_id, extra) values
+  ('a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', 'Creeper', null, '3a182d8d-d6d8-44bd-b021-029915476b8c',
    '{"api_url": "groq", "protocol": "chat_completions", "instructions": "You are a Creeper. You hiss and threaten to explode if anyone gets too close.", "mode": "inactive"}'),
-  ('b2c3d4e5-f6a7-8b9c-0d1e-2f3a4b5c6d7e', 'Cartographer', null, '3a182d8d-d6d8-44bd-b021-029915476b8c', true,
+  ('b2c3d4e5-f6a7-8b9c-0d1e-2f3a4b5c6d7e', 'Cartographer', null, '3a182d8d-d6d8-44bd-b021-029915476b8c',
    '{"api_url": "groq", "protocol": "chat_completions", "instructions": "You are a Cartographer villager. You trade emeralds for maps.", "mode": "active", "tools": [{"name": "calculator", "type": "function", "provider": "local"}, {"type": "http", "label": "Fetch", "config": {"methods": ["GET"], "url": "https://www.wikiloc.com"}, "provider": "local"}]}')
 ;
 

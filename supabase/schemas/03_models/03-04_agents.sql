@@ -12,12 +12,18 @@ create table public.agents (
   -- ambiguity cannot be written down; the personas stay in `extra`, where
   -- they belong next to the prompt.
   role public.role default 'member'::public.role not null,
-  -- Deprecated: AI agents are on their way out and nothing reads this except
-  -- agent-client, which uses it to pick the agent to run. No policy, helper or
-  -- trigger consults it any more — membership rules are about people, and
-  -- `user_id is not null` is the honest test for that. Defaulted so writers
-  -- need not mention it.
-  ai boolean default false not null,
+  -- There is no `ai` flag any more. An agent with no `user_id` is nobody's
+  -- membership: that is what agent-client runs, and what every access helper
+  -- already skips. The flag never carried information the other two columns
+  -- did not — on the day it was dropped, `ai` and `user_id is null` agreed on
+  -- every row in production.
+  --
+  -- The one row shape that could lie is a person whose auth user was erased:
+  -- user_id goes null, the agent survives, and it starts looking like an AI
+  -- agent. Harmless in practice (agent-client needs a model and instructions
+  -- to do anything), and the cure is upstream — an owner cannot erase their
+  -- user at all (prevent_owner_user_deletion), and a member who leaves is
+  -- marked deleted_at, which is the other half of the test.
   extra jsonb,
   -- Set by prevent_last_owner_deletion, which cancels the DELETE and marks the
   -- row instead: an agent outlives their membership, because messages name

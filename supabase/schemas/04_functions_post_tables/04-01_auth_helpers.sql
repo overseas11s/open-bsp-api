@@ -86,15 +86,15 @@ $$;
 -- SECURITY DEFINER (also avoiding RLS recursion on agents) and confirm the
 -- columns the caller is not allowed to move still hold their old values.
 --
--- Identity: which organization the row belongs to, which person it names, and
--- whether it is an AI agent. None of the three is editable by anyone through
--- the API — an agent that could change organization_id would be a tenant
--- escape, and one that could change user_id would be an impersonation.
+-- Identity: which organization the row belongs to, and which person it names.
+-- Neither is editable by anyone through the API — an agent that could change
+-- organization_id would be a tenant escape, and one that could change user_id
+-- would be an impersonation. (`user_id` doubles as the AI test now that the
+-- `ai` flag is gone, so pinning it also pins that.)
 create function public.agent_identity_unchanged(
   p_id uuid,
   p_user_id uuid,
-  p_organization_id uuid,
-  p_ai boolean
+  p_organization_id uuid
 ) returns boolean
 language plpgsql
 security definer -- avoid RLS infinite recursion
@@ -106,7 +106,6 @@ begin
     where id = p_id
       and user_id is not distinct from p_user_id
       and organization_id = p_organization_id
-      and ai = p_ai
   );
 end;
 $$;
@@ -119,7 +118,6 @@ create function public.agent_identity_and_role_unchanged(
   p_id uuid,
   p_user_id uuid,
   p_organization_id uuid,
-  p_ai boolean,
   p_role public.role
 ) returns boolean
 language plpgsql
@@ -132,7 +130,6 @@ begin
     where id = p_id
       and user_id is not distinct from p_user_id
       and organization_id = p_organization_id
-      and ai = p_ai
       and role = p_role
   );
 end;
