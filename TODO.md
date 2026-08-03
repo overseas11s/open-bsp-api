@@ -42,46 +42,6 @@ Monetization
 
 - [ ] Offer user-scoped WhatsApp/Instagram connections
 
-- [ ] Per-member read receipts (team chat). External `status.read` is one fact
-      owed to one peer; internal reads are per member. Two candidate homes,
-      decide by what the UI will render: - `status.read` as a map keyed by agent
-      id — merge_update is recursive merge-patch, so concurrent member reads
-      merge (and `null` retracts) with no new machinery; precise per message,
-      but N members × M messages row updates (webhook + realtime churn per
-      read), and only WhatsApp groups feed it natively. - Watermark
-      `last_read_ts` in `conversations_agents.extra` (the slot the schema
-      comment already reserves) — one write per read action, feedable by both
-      Slack markers and WhatsApp receipts; "seen by" is derived by comparing
-      timestamps.
-
-- [ ] Mentions live in content, like `re_message_id`: a `content.mentions` array
-      of soft references, dual-keyed the way authorship is — `address` for
-      external mentions, `agent_id` for internal ones. Inbound, the
-      webhook/bridge parses them (whatsmeow: `ContextInfo.MentionedJID` + the
-      `@digits` in text; Slack: `<@U…>` markup); outbound, the dispatcher
-      composes them back. Tolerant of absence, never a FK.
-
-## AI agents (frozen; on their way out)
-
-- [ ] Testing an agent = a `local` DIRECT conversation with the AI (locked
-      2026-08-03). A local direct's address IS its roster (agent ids, sorted,
-      ':'-joined) and RLS only allows roster edits on `group`, so "the AI
-      answers where its id is in the address" is safe by construction — a member
-      cannot pull the AI into a real team conversation, and "DM the AI" stops
-      being a test mode at all. Authorship keys off `agent_id` throughout
-      (member = user turn, AI = assistant); `sender_address` is contact-space
-      and never enters internal comms. - New trigger: WHEN
-      `service = 'local' and agent_id is not null and
-        pending`; the
-      function checks the address names an AI agent that is not the author, then
-      POSTs /agent-client. - agent-client: carve the AI-DM exception from the
-      team-chat refusal (re-verify the roster server-side), map roles by
-      `agent_id`, skip the contact lookup and the welcome message. - Replies
-      need nothing: the AI's row arms the outgoing trigger and
-      `dispatcher_edge_function`'s local branch stamps it `delivered`. -
-      `multiple` (member + colleagues + AI) can join later under the same rule;
-      start with `direct`.
-
 ## General
 
 - [ ] Webhook delivery retries — pg_net makes one attempt per event (no retry,

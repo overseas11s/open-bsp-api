@@ -17,6 +17,7 @@ import * as log from "../_shared/logger.ts";
 import type {
   IncomingMessage,
   IncomingStatus,
+  Mention,
   MessageInsert,
 } from "../_shared/supabase.ts";
 import { MAX_STORAGE_UPLOAD_SIZE, uploadToStorage } from "../_shared/media.ts";
@@ -380,6 +381,97 @@ async function ensureContact(
     .throwOnError();
 }
 
+const SLACK_MENTION_RE = /<@([A-Z0-9]+)(?:\|([^>]+))?>/g;
+
+/**
+ * Resolves `<@U…>` user mentions: each token becomes `@Name` in the stored
+ * markdown, and the mentioned users land in `content.mentions` — `address`
+ * in contact space (the Slack user id), `agent_id` when they are a linked
+ * member. Names come from the token's own label, the directory
+ * (contacts_addresses), the agents roster, or users.info, in that order; an
+ * id nothing can name keeps its token verbatim rather than losing it.
+ */
+async function resolveMentions(
+  ctx: Ctx,
+  raw: string,
+): Promise<{ text: string; mentions?: Mention[] }> {
+  const tokens = [...raw.matchAll(SLACK_MENTION_RE)];
+  if (tokens.length === 0) return { text: slackToMarkdown(raw) };
+
+  const ids = [...new Set(tokens.map((t) => t[1]))];
+
+  const { data: contacts } = await ctx.client
+    .from("contacts_addresses")
+    .select("address, extra")
+    .eq("organization_id", ctx.organization_id)
+    .eq("service", "slack")
+    .in("address", ids)
+    .throwOnError();
+
+  const contactName = new Map<string, string | undefined>(
+    (contacts ?? []).map((
+      c: { address: string; extra?: { synced?: { name?: string } } },
+    ) => [c.address, c.extra?.synced?.name]),
+  );
+
+  const { data: linked } = await ctx.client
+    .from("organizations_addresses")
+    .select("address, agent_id")
+    .eq("organization_id", ctx.organization_id)
+    .eq("service", "slack")
+    .in("address", ids.map((id) => `${ctx.team}:${id}`))
+    .not("agent_id", "is", null)
+    .throwOnError();
+
+  const memberByUser = new Map<string, string>(
+    (linked ?? []).map((
+      l: { address: string; agent_id: string },
+    ) => [l.address.split(":")[1], l.agent_id]),
+  );
+
+  const agentName = new Map<string, string>();
+  if (memberByUser.size > 0) {
+    const { data: agents } = await ctx.client
+      .from("agents")
+      .select("id, name")
+      .in("id", [...memberByUser.values()])
+      .throwOnError();
+
+    for (const a of (agents ?? []) as Array<{ id: string; name: string }>) {
+      agentName.set(a.id, a.name);
+    }
+  }
+
+  const mentions: Mention[] = [];
+  for (const id of ids) {
+    const agent_id = memberByUser.get(id);
+    const label = tokens.find((t) => t[1] === id)?.[2];
+    let name = label ?? contactName.get(id) ??
+      (agent_id ? agentName.get(agent_id) : undefined);
+
+    if (!name) {
+      const token = await anyWorkspaceToken(ctx);
+      const profile = token ? await usersInfo(token, id) : null;
+      name = profile?.profile?.display_name || profile?.profile?.real_name ||
+        profile?.name || undefined;
+    }
+
+    mentions.push({
+      address: id,
+      ...(agent_id ? { agent_id } : {}),
+      ...(name ? { name } : {}),
+    });
+  }
+
+  const named = new Map(mentions.map((m) => [m.address, m.name]));
+  const text = raw.replace(
+    SLACK_MENTION_RE,
+    (token, id: string) => named.get(id) ? `@${named.get(id)}` : token,
+  );
+
+  return { text: slackToMarkdown(text), mentions };
+}
+
 // Regular messages, file shares, thread broadcasts, edits and deletions.
 async function onMessage(
   ctx: Ctx,
@@ -390,10 +482,18 @@ async function onMessage(
   if (event.subtype === "message_changed") {
     if (!event.message?.ts) return;
 
+    const { text, mentions } = await resolveMentions(
+      ctx,
+      event.message.text ?? "",
+    );
+
     await ctx.client
       .from("messages")
       .update({
-        content: { text: slackToMarkdown(event.message.text ?? "") },
+        // `mentions: null` on a mention-less edit: the content merge is
+        // merge-patch, where null removes the key — otherwise mentions from
+        // the pre-edit text would survive it.
+        content: { text, mentions: mentions ?? null },
         status: { edited: tsToIso(event.event_ts ?? event.message.ts) },
       })
       .eq("external_id", externalId(ctx.team, channel, event.message.ts))
@@ -496,6 +596,8 @@ async function onMessage(
 
   const files = event.files ?? [];
 
+  const { text, mentions } = await resolveMentions(ctx, event.text ?? "");
+
   if (files.length === 0) {
     rows.push({
       ...base,
@@ -504,7 +606,8 @@ async function onMessage(
         version: "1",
         type: "text",
         kind: "text",
-        text: slackToMarkdown(event.text ?? ""),
+        text,
+        ...(mentions ? { mentions } : {}),
       } as IncomingMessage,
     });
   } else {
@@ -512,7 +615,12 @@ async function onMessage(
 
     for (const [index, file] of files.entries()) {
       const uri = await downloadFile(ctx, token, file);
-      // One row per file; Slack's message text is the caption of the first.
+      // One row per file; Slack's message text is the caption of the first
+      // (mentions ride with it).
+      const caption = index === 0 && event.text
+        ? { text, ...(mentions ? { mentions } : {}) }
+        : {};
+
       rows.push({
         ...base,
         external_id: index === 0
@@ -529,9 +637,7 @@ async function onMessage(
               name: file.name,
               size: file.size ?? 0,
             },
-            ...(index === 0 && event.text
-              ? { text: slackToMarkdown(event.text) }
-              : {}),
+            ...caption,
           } as IncomingMessage
           // Download failed/oversized/no token: keep the message with a
           // placeholder so the timeline stays complete.
@@ -540,9 +646,7 @@ async function onMessage(
             type: "data",
             kind: "media_placeholder",
             data: {},
-            ...(index === 0 && event.text
-              ? { text: slackToMarkdown(event.text) }
-              : {}),
+            ...caption,
           } as IncomingMessage,
       });
     }

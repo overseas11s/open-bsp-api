@@ -143,6 +143,15 @@ export function markdownToSlack(text: string): string {
       .replaceAll(">", "&gt;")
       .replace(//g, ">");
 
+    // Special mentions back to their wire form (after the escape pass, like
+    // the link conversion below, so the freshly written < > survive). User
+    // mentions are the dispatcher's job: it re-encodes @Name from
+    // content.mentions.
+    processed = processed.replace(
+      /(^|\s)@(here|channel|everyone)\b/g,
+      "$1<!$2>",
+    );
+
     // Emphasis/headers are the WhatsApp conversions verbatim.
     processed = markdownToWhatsApp(processed);
 
@@ -168,10 +177,12 @@ export function slackToMarkdown(text: string): string {
       p = p.replace(/<(https?:\/\/[^>|]+)\|([^>]+)>/g, "[$2]($1)");
       p = p.replace(/<(https?:\/\/[^>|]+)>/g, "$1");
 
-      // Channel references: <#C123|name> -> #name. User (<@U123>) and
-      // special (<!here>) mentions are left verbatim — resolving them to
-      // names needs the directory, which is the UI's job.
+      // Channel references: <#C123|name> -> #name. Special mentions
+      // (<!here>) become their plain form; user mentions (<@U123>) are the
+      // slack-webhook's job — it has the directory to name them and records
+      // content.mentions — so any that reach here pass verbatim.
       p = p.replace(/<#[A-Z0-9]+\|([^>]+)>/g, "#$1");
+      p = p.replace(/<!(here|channel|everyone)>/g, "@$1");
 
       // Emphasis: same wire flavor as WhatsApp.
       p = convertMarker(p, "*", "**", "**");

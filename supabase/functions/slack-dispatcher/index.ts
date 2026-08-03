@@ -100,6 +100,55 @@ async function getConnection(
 }
 
 /**
+ * Re-encodes user mentions for the wire: each content.mentions entry whose
+ * `@Name` appears in the text becomes `<@U…>`. The Slack user id is the
+ * mention's `address`, or — for a member named only by `agent_id` — the user
+ * segment of their personal connection (T…:U…). Unresolvable mentions stay
+ * plain @Name, which Slack renders as text.
+ */
+async function encodeMentions(
+  client: SupabaseClient,
+  message: MessageRow,
+  text: string,
+): Promise<string> {
+  const mentions = (message.content as OutgoingMessage).mentions ?? [];
+  if (mentions.length === 0) return text;
+
+  const resolved: Array<{ name: string; user: string }> = [];
+
+  for (const mention of mentions) {
+    if (!mention.name) continue;
+
+    let user = mention.address;
+
+    if (!user && mention.agent_id) {
+      const { data } = await client
+        .from("organizations_addresses")
+        .select("address")
+        .eq("organization_id", message.organization_id)
+        .eq("service", "slack")
+        .eq("agent_id", mention.agent_id)
+        .like("address", `${message.organization_address}:%`)
+        .maybeSingle()
+        .throwOnError();
+
+      user = data?.address?.split(":")[1];
+    }
+
+    if (user) resolved.push({ name: mention.name, user });
+  }
+
+  // Longest name first, so "@Ana María" is not half-claimed by "@Ana".
+  resolved.sort((a, b) => b.name.length - a.name.length);
+
+  for (const { name, user } of resolved) {
+    text = text.replaceAll(`@${name}`, `<@${user}>`);
+  }
+
+  return text;
+}
+
+/**
  * Sends the message; returns the Slack ts of the posted message when there is
  * one to track (text posts). Reactions and file uploads yield none — their
  * echoes arrive as webhook rows instead.
@@ -116,7 +165,11 @@ async function send(
     case "text": {
       const payload = await slackApi("chat.postMessage", token, {
         channel,
-        text: markdownToSlack(content.text),
+        text: await encodeMentions(
+          client,
+          message,
+          markdownToSlack(content.text),
+        ),
         ...(message.thread_id ? { thread_ts: message.thread_id } : {}),
       });
 
@@ -214,7 +267,13 @@ async function send(
         });
       }
 
-      const caption = content.text ? `${markdownToSlack(content.text)}\n` : "";
+      const caption = content.text
+        ? `${await encodeMentions(
+          client,
+          message,
+          markdownToSlack(content.text),
+        )}\n`
+        : "";
 
       const payload = await slackApi("chat.postMessage", token, {
         channel,

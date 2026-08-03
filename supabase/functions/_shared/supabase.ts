@@ -84,6 +84,7 @@ export type {
   IncomingMessage,
   InternalMessage,
   LocalToolInfo,
+  Mention,
   OutgoingMessage,
   Part,
   Parts,

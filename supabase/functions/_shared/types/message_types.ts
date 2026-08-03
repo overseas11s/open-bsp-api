@@ -90,6 +90,21 @@ type AnthropicToolInfo = {
     | "web_search";
 };
 
+/**
+ * A mention — who the text calls out. Dual-keyed the way authorship is:
+ * `address` in contact space (a WhatsApp participant's digits, a Slack user
+ * id), `agent_id` in member space; either or both may be set. `name` is the
+ * display text as it appears in `text` ("@Ana" ⇒ name "Ana"), which is also
+ * how dispatchers find the token to re-encode natively (Slack `<@U…>`,
+ * WhatsApp `@digits` + MentionedJID). Soft references like `re_message_id`:
+ * tolerant of absence, never a FK.
+ */
+export type Mention = {
+  address?: string;
+  agent_id?: string;
+  name?: string;
+};
+
 // Text based
 
 export type TextPart = {
@@ -239,6 +254,7 @@ export type IncomingMessage =
     version: "1";
     re_message_id?: string; // replied, reacted or forwarded message id
     forwarded?: boolean;
+    mentions?: Mention[];
     referred_product?: {
       catalog_id: string;
       product_retailer_id: string;
@@ -267,14 +283,14 @@ export type InternalMessage =
     version: "1";
     re_message_id?: string; // replied, reacted or forwarded message id
     forwarded?: boolean;
+    mentions?: Mention[];
     /**
-     * Record-only: this row is never dispatched, to anyone. The successor of
-     * `direction: "internal"` — declared here so the marker travels with the
-     * content instead of living in a column readers must know to consult.
-     * Writers set it themselves (agent-client on tool traces and errors, API
-     * clients on internal notes); the database reads it — strips
-     * status.pending, refuses dispatch — but never stamps it, and never
-     * translates it back into the direction column it replaces.
+     * Record-only: this row is never dispatched, to anyone. Declared here so
+     * the marker travels with the content instead of living in a column
+     * readers must know to consult. Writers set it themselves (agent-client
+     * on tool traces and errors, API clients on internal notes); the
+     * database reads it — strips status.pending, refuses dispatch — but
+     * never stamps it.
      */
     internal?: true;
   }
@@ -287,6 +303,7 @@ export type OutgoingMessage =
     version: "1";
     re_message_id?: string; // replied, reacted or forwarded message id
     forwarded?: boolean;
+    mentions?: Mention[];
   }
   & TaskInfo
   & (
