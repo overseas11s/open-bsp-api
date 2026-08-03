@@ -140,6 +140,23 @@ when (
 )
 execute function public.edge_function('/agent-client', 'post');
 
+-- The internal mirror of the trigger above: `agent_id` is authorship in
+-- member space the way `sender_address` is in contact space. Only `local`
+-- and only armed rows; whether the room actually IS an AI DM is the
+-- function's question — a WHEN clause cannot look inside the address. No
+-- content.internal clause for the same reason the external trigger has
+-- none: before_insert strips `pending` on internal rows.
+create trigger handle_local_message_to_agent
+after insert
+on public.messages
+for each row
+when (
+  new.agent_id is not null
+  and new.service = 'local'::public.service
+  and (new.status ->> 'pending') is not null
+)
+execute function public.local_message_to_agent();
+
 -- Team chat is excluded, and `local` was never the whole of it: reading a
 -- colleague's message is not a receipt owed to anyone outside, and on Slack
 -- there is no user-token API to deliver one with. It also matters now that
