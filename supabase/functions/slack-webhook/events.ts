@@ -478,16 +478,14 @@ async function onMessage(
     // Same shape as every other inbound message, and one shape for two cases.
     //
     // `pending` is what arms the platform: the media preprocessor on file
-    // messages, and the mark-as-read path. Slack used to opt out of both by
-    // writing a final status, which made it the only service whose files were
-    // never preprocessed. The AI is kept out by a rule now (team chat), not by
-    // an accident of what this webhook happened to write.
+    // messages, and the mark-as-read path. The AI is kept out by a rule
+    // (team chat), not by what this webhook happens to write.
     //
     // `sent` is the receipt. On a colleague's message it says when Slack
     // stamped it; on the echo of a member send it lands on the row the
     // dispatcher already stamped `accepted` — the upsert conflicts on
-    // external_id and merges — which is the delivery confirmation Slack never
-    // gave us before.
+    // external_id and merges — which is the closest thing to a delivery
+    // confirmation Slack offers.
     status: {
       pending: new Date().toISOString(),
       sent: tsToIso(event.event_ts ?? event.ts),

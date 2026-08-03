@@ -89,8 +89,8 @@ $$;
 -- Identity: which organization the row belongs to, and which person it names.
 -- Neither is editable by anyone through the API — an agent that could change
 -- organization_id would be a tenant escape, and one that could change user_id
--- would be an impersonation. (`user_id` doubles as the AI test now that the
--- `ai` flag is gone, so pinning it also pins that.)
+-- would be an impersonation. (`user_id` doubles as the AI test, so pinning
+-- it also pins that.)
 create function public.agent_identity_unchanged(
   p_id uuid,
   p_user_id uuid,

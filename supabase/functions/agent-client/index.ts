@@ -83,12 +83,10 @@ const MEDIA_PREPROCESSING_POLLING_INTERVAL = 5 * 1000; // 5 seconds
  */
 
 /**
- * Authorship without the deprecated `direction` column.
- *
- * `sender_address` is a contact reference: set when the peer authored the row,
- * null when the account itself did. `content.tool` marks our own tool traces,
- * which are recorded but never spoken. Those two answer every question this
- * function used to ask `direction`.
+ * Authorship. `sender_address` is a contact reference: set when the peer
+ * authored the row, null when the account itself did. `content.internal`
+ * marks record-only rows (tool traces, agent errors), which are recorded but
+ * never spoken.
  */
 const fromContact = (m: { sender_address: string | null }) =>
   m.sender_address !== null;
@@ -172,11 +170,10 @@ Deno.serve(async (req) => {
 
   // RETRIEVE CONTACT
   //
-  // conversation_address is a soft reference (the FK went with the legacy
-  // contact_address column), so the contact comes from its own query: on a
-  // direct chat the conversation's address IS the contact's address, and a
-  // group address simply matches no contacts_addresses row — same outcome as
-  // the old embed returning null.
+  // conversation_address is a soft reference (no FK, so no PostgREST embed):
+  // the contact comes from its own query. On a direct chat the conversation's
+  // address IS the contact's address; a group address simply matches no
+  // contacts_addresses row and the contact stays null.
 
   const { data: contact_address } = await client
     .from("contacts_addresses")
@@ -232,11 +229,10 @@ Deno.serve(async (req) => {
   //
   // The oldest active AI agent in the organization — an AI agent being one
   // that is nobody's membership (no user_id) and has not been retired
-  // (deleted_at). There is no per-conversation override any more: nothing
-  // could write one, since members hold no UPDATE on conversations outside
-  // `local`.
+  // (deleted_at). There is no per-conversation override: nothing can write
+  // one, since members hold no UPDATE on conversations outside `local`.
   //
-  // Selected before the delay because the delay is now the agent's own.
+  // Selected before the delay because the delay is the agent's own.
 
   const agent = agents
     .filter((a) =>
@@ -336,8 +332,8 @@ Deno.serve(async (req) => {
 
   // WELCOME MESSAGE
   //
-  // The agent's, not the organization's — so it needs an agent, and an
-  // organization without one no longer greets anyone. Still ahead of asking
+  // The agent's, not the organization's — so it needs an agent; without
+  // one, nobody greets. Still ahead of asking
   // the agent anything: it replaces the first answer rather than preceding it.
 
   if (
@@ -855,9 +851,9 @@ Deno.serve(async (req) => {
           service: conv.service,
           organization_address: conv.organization_address,
           conversation_address: conv.conversation_address,
-          // Agent errors are record-only (extra.error_messages_direction is
-          // deprecated — dispatching errors to the end user is gone; OpenBSP
-          // is a communication layer and internal rows never dispatch).
+          // Agent errors are record-only: OpenBSP is a communication layer,
+          // and internal rows never dispatch — errors are never spoken to
+          // the end user.
           agent_id: agent.id,
           content: {
             version: "1" as const,

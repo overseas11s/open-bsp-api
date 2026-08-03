@@ -4,19 +4,12 @@ create table public.agents (
   id uuid default gen_random_uuid() not null,
   name text not null,
   picture text,
-  -- Access control, and only that. It used to live in `extra.role`, sharing
-  -- the key with an unrelated meaning: on AI agents that same key holds a
-  -- persona — "presupuestador metalúrgico", "Recopiladora de datos" — which
-  -- get_authorized_orgs quietly resolved to `member` through its else branch.
-  -- Harmless only because AI agents have no user_id to match on. Typed, the
-  -- ambiguity cannot be written down; the personas stay in `extra`, where
-  -- they belong next to the prompt.
+  -- Access control, and only that. AI personas ("presupuestador
+  -- metalúrgico", "Recopiladora de datos") are not roles; they stay in
+  -- `extra`, where they belong next to the prompt.
   role public.role default 'member'::public.role not null,
-  -- There is no `ai` flag any more. An agent with no `user_id` is nobody's
-  -- membership: that is what agent-client runs, and what every access helper
-  -- already skips. The flag never carried information the other two columns
-  -- did not — on the day it was dropped, `ai` and `user_id is null` agreed on
-  -- every row in production.
+  -- An agent with no `user_id` is nobody's membership — an AI agent: that is
+  -- what agent-client runs, and what every access helper skips.
   --
   -- The one row shape that could lie is a person whose auth user was erased:
   -- user_id goes null, the agent survives, and it starts looking like an AI
@@ -121,10 +114,9 @@ on public.agents
 for each row
 execute function public.moddatetime('updated_at');
 
--- `user_id is not null` where these used to say `ai = false`: an owner is a
--- person, and having an auth identity is what makes one. It says the same
--- thing without consulting a column that is on its way out, and it keeps
--- saying it for an AI agent that somehow carries the owner role.
+-- `user_id is not null`: an owner is a person, and having an auth identity
+-- is what makes one — it holds even for an AI agent that somehow carries the
+-- owner role.
 --
 -- `old.deleted_at is null` on the update guard: a marked agent is already not
 -- an owner as far as every access helper is concerned, so reviving one at a

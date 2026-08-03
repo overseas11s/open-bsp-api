@@ -95,8 +95,7 @@ check (
 -- that peer. `id` is a convenience surrogate, not the identity.
 --
 -- This is what removes the lookup-then-insert race: every writer can upsert on
--- this key instead of select-then-maybe-insert. Production accumulated 136
--- duplicated keys under the old shape.
+-- this key instead of select-then-maybe-insert.
 --
 -- Column ORDER is load-bearing, though uniqueness does not depend on it. With
 -- organization_address second, the leading columns also serve:

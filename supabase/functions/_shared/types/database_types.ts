@@ -65,9 +65,9 @@ export type Database = MergeDeep<
             extra?: ConversationExtra;
           };
         };
-        // No row-level discriminant any more — `direction` is gone. Who
-        // authored a row is `sender_address` (a contact, or null = the
-        // account itself); record-only rows carry `content.internal` (see
+        // There is no row-level discriminant. Who authored a row is
+        // `sender_address` (a contact, or null = the account itself);
+        // record-only rows carry `content.internal` (see
         // isInternal/isToolTrace). The content union is therefore plain:
         // narrow via content.type/kind, or via the guards.
         messages: {

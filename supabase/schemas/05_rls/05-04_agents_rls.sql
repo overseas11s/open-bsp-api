@@ -14,15 +14,8 @@
 --
 -- The whole model, in one place: you see everyone in your organizations, you
 -- edit yourself, admins edit anyone, owners do anything, and you can leave.
--- Only owners grant roles.
---
--- Two of the nine policies this replaces went with AI agents ceasing to be a
--- category RLS knows about — the `ai` flag is gone, and `user_id is null` says
--- the same thing, so admins reach human and AI agents through one policy
--- instead of a separate pair. A third went with invitations becoming their own table: "members can
--- read themselves" existed because an invitee held an agents row in an
--- organization they had not joined, out of reach of the org-wide read below.
--- By the time such a row exists now, they are a member.
+-- Only owners grant roles. AI agents are not a category RLS knows about —
+-- `user_id is null` is just another agent to these policies.
 
 alter table public.agents enable row level security;
 

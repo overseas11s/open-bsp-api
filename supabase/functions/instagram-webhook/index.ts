@@ -695,8 +695,8 @@ async function processMessage(request: Request): Promise<Response> {
   }
 
   // Now iterate events synchronously to build messages/statuses. Username
-  // resolution is no longer needed inline — it has already been persisted (or
-  // is being persisted upstream of the messages upsert below).
+  // resolution has already been persisted (or is being persisted) upstream
+  // of the messages upsert below, so nothing here awaits it.
   const messages: MessageInsert[] = [];
   const statuses: MessageInsert[] = [];
 

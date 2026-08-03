@@ -1,16 +1,13 @@
--- An invitation is a pending offer of membership, not a member. It used to be
--- an agents row carrying `extra.invitation`, which meant every access helper
--- had to remember to exclude agents whose invitation was not yet accepted —
--- get_authorized_orgs and prevent_last_owner_deletion both carried that clause,
--- and forgetting it anywhere would have granted access to someone who never
--- replied. A separate table cannot be forgotten: an agents row now means a
--- member, unconditionally.
+-- An invitation is a pending offer of membership, not a member: an agents
+-- row means a member, unconditionally. Keeping the pending state in its own
+-- table means no access helper needs an exclusion clause it could forget —
+-- and forgetting one anywhere would grant access to someone who never
+-- replied.
 --
 -- EMAIL is the key. The invitee typically has no auth user yet, and when they
 -- do they are not in the organization, so nothing about them can be named by
 -- id at invitation time. Their identity is resolved once, at acceptance, from
--- the JWT — which is also what retires the two SECURITY DEFINER triggers that
--- used to reach into auth.users to guess it ahead of time.
+-- the JWT.
 create table public.invitations (
   id uuid default gen_random_uuid() not null,
   organization_id uuid not null,

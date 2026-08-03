@@ -299,13 +299,11 @@ export type OutgoingMessage =
   );
 
 /**
- * A tool trace — the row the database calls `internal`.
+ * A tool trace — a record-only row carrying a tool call/result.
  *
- * `content.tool` is the marker: before_insert_on_messages reads it to derive
- * `direction`, so asking for the tool asks the same question the deprecated
- * column answered, one step earlier. Written as a type guard because the
- * content union is only narrowable by a predicate: it includes the open
- * `Json` shape, so `"tool" in content` proves nothing to the compiler.
+ * Written as a type guard because the content union is only narrowable by a
+ * predicate: it includes the open `Json` shape, so `"tool" in content`
+ * proves nothing to the compiler.
  */
 export function isToolTrace<T extends { content: unknown }>(
   message: T,

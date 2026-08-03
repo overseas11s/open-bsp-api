@@ -87,9 +87,8 @@ begin
   end if;
 
   if old.role = 'owner' then
-    -- No invitation clause any more: an agents row IS a member now, so there
-    -- is no such thing as an owner who has not replied yet. `user_id is not
-    -- null` stands in for the old `ai = false` — an owner is a person.
+    -- An agents row IS a member (invitations are their own table), and an
+    -- owner is a person: `user_id is not null`.
     select count(*) into owner_count
     from public.agents
     where organization_id = old.organization_id
@@ -195,7 +194,7 @@ security definer
 set search_path = ''
 as $$
 begin
-  -- The addressing, in two columns (direction and contact_address are gone):
+  -- The addressing, in two columns:
   --
   -- sender_address is a contact reference or null: the peer who authored the
   -- message (a phone/BSUID, a Slack workspace member — ties to
@@ -206,9 +205,8 @@ begin
 
   -- Internal rows (tool traces, notes, agent errors) are record-only and
   -- never need the pending arm bit — strip it so no automation (dispatch,
-  -- retry sweeps, media preprocessing) can ever pick them up. This also IS
-  -- the deprecation of dispatching agent errors. content.internal is the one
-  -- marker — a tool trace says it too, because its writer says it.
+  -- retry sweeps, media preprocessing) can ever pick them up.
+  -- content.internal is the one marker, declared by the writer.
   if new.content->>'internal' = 'true' then
     new.status := new.status - 'pending';
   end if;
@@ -219,13 +217,12 @@ begin
   end if;
 
   -- Look up conversation_id. A conversation IS a channel, so this is an exact
-  -- hit on conversations_identity_idx — no `status` predicate (the session
-  -- dimension is gone) and no most-recent tiebreak (the key is unique).
+  -- hit on conversations_identity_idx — the key is unique, no most-recent
+  -- tiebreak.
   --
   -- organization_id is in the predicate so the scan can start from the index's
   -- leading column. Plain equality throughout: conversation_address is never
-  -- null, so the old `is not distinct from` — which is not indexable and
-  -- degraded it to a filter over every conversation on the account — is gone.
+  -- null here, and equality (unlike `is not distinct from`) is indexable.
   --
   -- A peerless (local) message with neither conversation_id nor
   -- conversation_address matches nothing and falls through to the insert

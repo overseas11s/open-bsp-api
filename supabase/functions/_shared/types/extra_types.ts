@@ -212,8 +212,8 @@ export type ToolConfig =
   | LocalMCPToolConfig;
 
 /**
- * A human agent has no defined `extra` any more: `role` is a column
- * (access control, typed), and invitations are their own table.
+ * A human agent has no defined `extra`: `role` is a column (access control,
+ * typed), and invitations are their own table.
  */
 
 export type AIAgentExtra = {

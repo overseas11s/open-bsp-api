@@ -42,23 +42,6 @@ Monetization
 
 - [ ] Offer user-scoped WhatsApp/Instagram connections
 
-## Deprecated columns (direction, contact_address)
-
-Both columns are still WRITTEN everywhere — the rule is only that nothing new
-should READ them.
-
-- [x] `internal`'s successor is `content.internal: true` — declared by the
-      writer in the content, where it travels with the message. Clients set it
-      (agent-client does, on tool traces and errors); the database only reads
-      it: before_insert derives the legacy direction and strips status.pending,
-      a merge cannot re-arm it, dispatch refuses it. Existing v1-shaped internal
-      rows are backfilled; v0-shaped ones lean on the `content.tool` fallback
-      until they age out.
-
-- [ ] The dispatchers and webhooks still branch on `direction`, and the
-      `MessageRow` union discriminates on it. agent-client and the dispatch cron
-      ask `sender_address` instead; the rest do not.
-
 ## AI agents (frozen; on their way out)
 
 - [ ] Testing an agent from the UI was a `local` conversation, and team chat is

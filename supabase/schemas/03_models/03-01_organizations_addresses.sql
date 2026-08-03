@@ -21,8 +21,7 @@ create table public.organizations_addresses (
 -- connections with separate tokens.
 --
 -- It is also what lets every dependent FK carry service, so a child row can
--- never claim a service its account does not have — a `local` conversation
--- anchored to a WhatsApp business number used to be accepted.
+-- never claim a service its account does not have.
 alter table only public.organizations_addresses
 add constraint organizations_addresses_pkey
 primary key (organization_id, service, address);
