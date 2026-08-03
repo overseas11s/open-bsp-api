@@ -553,8 +553,10 @@ Deno.serve(async (req) => {
     let readReceipt = false;
     let typingIndicator = false;
 
+    // Incoming direct-chat reads are scalar; a map (per-member team-chat
+    // reads) is not a receipt owed to this service's peer.
     if (
-      status.read &&
+      typeof status.read === "string" &&
       Date.now() - +new Date(status.read) <= 60 * 1000
     ) {
       readReceipt = true;

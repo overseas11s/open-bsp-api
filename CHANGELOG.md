@@ -10,6 +10,9 @@
   messages); use `conversations.type` to distinguish between direct, multiple,
   group, channel.
 - `conversations.status` is dropped — filtering on it 400s.
+- `status.delivered` / `status.read` may be a map keyed by the reader (contact
+  addresses on external group messages, agent ids in team chat) instead of a
+  scalar timestamp. Direct-chat receipts stay scalar.
 - Accounts are keyed `(organization_id, service, address)`: add `service` to
   lookups.
 - `conversations` is read-only outside `local` service.
