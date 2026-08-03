@@ -240,7 +240,7 @@ export async function listConversations(params: ListConversationsParams) {
         unread: countUnread(c.messages),
         last_message: c.messages?.length
           ? {
-            from: c.messages[0].sender_address ? "contact" : "business",
+            from: c.messages[0].sender_address ? "contact" : "organization",
             content: c.messages[0].content,
             timestamp: formatTime(c.messages[0].timestamp),
             status: formatStatus(c.messages[0].status),
@@ -341,7 +341,7 @@ export async function fetchConversation(params: FetchConversationParams) {
     }
 
     return {
-      from: m.sender_address ? "contact" : "business",
+      from: m.sender_address ? "contact" : "organization",
       content: m.content,
       time: formatTime(m.timestamp),
       status: formatStatus(m.status),
