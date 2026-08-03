@@ -22,10 +22,9 @@
 //
 //   {
 //     organization_address: string,     // the connector session's own address
-//     messages?:  [{ external_id, direction, contact_address?,
-//                    conversation_address?, thread_id?, content, status?,
-//                    timestamp }],
-//     statuses?:  [{ external_id, contact_address?, conversation_address?,
+//     messages?:  [{ external_id, conversation_address, sender_address?,
+//                    thread_id?, content, status?, timestamp }],
+//     statuses?:  [{ external_id, conversation_address,
 //                    status }],         // delivery receipts
 //     contacts?:  [{ address, extra? }],// names, avatars
 //     groups?:    [{ address, name? }], // group subject → conversation name
@@ -170,11 +169,11 @@ async function handle(req: Request): Promise<Response> {
     organization_address?: string;
     messages?: Array<{
       external_id: string;
-      direction: "incoming" | "outgoing";
-      /** The individual sender (per-message author) */
-      contact_address?: string;
       /** The chat: group JID, or the peer address for direct chats */
-      conversation_address?: string;
+      conversation_address: string;
+      /** The contact who authored the message (the group participant, or the
+       * DM peer); omitted when the account itself spoke (echoes, history). */
+      sender_address?: string;
       thread_id?: string;
       content: Json;
       status?: Record<string, Json>;
@@ -185,8 +184,7 @@ async function handle(req: Request): Promise<Response> {
       // The chat the receipt belongs to. Required by the BEFORE INSERT
       // trigger, which runs ahead of conflict detection and resolves a
       // conversation even though the upsert only ever merges status.
-      contact_address?: string;
-      conversation_address?: string;
+      conversation_address: string;
       status: Record<string, Json>;
     }>;
     contacts?: Array<{
@@ -235,20 +233,12 @@ async function handle(req: Request): Promise<Response> {
   // the Meta webhooks: the row exists (the dispatcher inserted it), so the
   // upsert only merges status. See whatsapp-webhook for the rationale on
   // upserting statuses and messages in two separate statements.
-  // The connector protocol still speaks direction + contact_address; the
-  // database no longer has either column, so THIS is where they translate
-  // (the DB-side compat the connectors used to lean on is gone):
-  //   conversation_address ??= contact_address (direct chats — a group JID
-  //     is always stated)
-  //   sender_address = the author, which is the per-message contact on an
-  //     incoming row and nobody on an outgoing one.
   const statuses: MessageInsert[] = (batch.statuses ?? []).map((status) => ({
     organization_id,
     service,
     organization_address,
     external_id: status.external_id,
-    conversation_address: status.conversation_address ??
-      status.contact_address,
+    conversation_address: status.conversation_address,
     content: {} as OutgoingMessage, // this will get merged (it won't overwrite)
     status: status.status as OutgoingStatus,
   }));
@@ -260,8 +250,7 @@ async function handle(req: Request): Promise<Response> {
         service,
         organization_address,
         external_id: message.external_id,
-        conversation_address: message.conversation_address ??
-          message.contact_address,
+        conversation_address: message.conversation_address,
         thread_id: message.thread_id,
         timestamp: message.timestamp,
       };
@@ -269,10 +258,10 @@ async function handle(req: Request): Promise<Response> {
       // Status is omitted for live messages so the column default
       // ({pending: now()}) arms automation; explicit for history/echoes so
       // they stay inert.
-      return message.direction === "incoming"
+      return message.sender_address
         ? {
           ...base,
-          sender_address: message.contact_address,
+          sender_address: message.sender_address,
           content: message.content as unknown as IncomingMessage,
           ...(message.status && {
             status: message.status as IncomingStatus,
@@ -297,8 +286,7 @@ async function handle(req: Request): Promise<Response> {
   // messages land.
   //
   // ignoreDuplicates: an existing conversation is left exactly as it is — this
-  // classifies new ones, it does not retype old ones. The backfill migration
-  // covers rows that predate the column.
+  // classifies new ones, it does not retype old ones.
   const containerType = (address: string): "group" | "broadcast" | undefined =>
     address.endsWith("@g.us")
       ? "group"

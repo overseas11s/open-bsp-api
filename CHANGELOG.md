@@ -3,9 +3,15 @@
 ## v1
 
 - `messages.direction` and `contact_address` (conversations, messages) are
-  deprecated; superseded by `conversation_address` and `sender_address`.
-  Record-only rows (tool traces, errors, notes) declare `content.internal: true`
-  instead of `direction: "internal"`.
+  dropped; superseded by `conversation_address` and `sender_address` (incoming =
+  `sender_address` set, outgoing = null). Selecting or filtering on the old
+  columns 400s. Record-only rows (tool traces, errors, notes) declare
+  `content.internal: true` instead of `direction: "internal"`.
+- v0 message content is out of support: readers only consider
+  `content.version: "1"` rows.
+- The connector webhook (self-hosted bridges) speaks native addressing: messages
+  carry `conversation_address` plus optional `sender_address`; `direction` and
+  `contact_address` are no longer accepted.
 - `group_address` was absorbed by `conversation_address` (conversations,
   messages); use `conversations.type` to distinguish between direct, multiple,
   group, channel.
