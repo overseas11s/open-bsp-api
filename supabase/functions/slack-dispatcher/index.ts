@@ -1,6 +1,6 @@
 // Outgoing Slack dispatch. Triggered by dispatcher_edge_function() when a
-// message row lands with sender_address null (the account spoke), a sendable
-// content kind, and status.pending.
+// message row lands with sender_address null (the account spoke), not
+// record-only (content.internal), and status.pending.
 //
 // The wire identity is the MEMBER when the row names an agent with a personal
 // connection: their xoxp user token (address row T…:U…) is what talks to
@@ -304,8 +304,8 @@ Deno.serve(async (req) => {
   log.info(`Dispatching message ${message.id}`, message);
 
   // Read receipts / typing indicators have no Slack Web API for user tokens —
-  // the mark-as-read trigger can also never fire for Slack rows (they carry
-  // no status.pending), so this is belt and suspenders.
+  // the mark-as-read trigger also excludes Slack by name, so this is belt
+  // and suspenders.
   if (message.sender_address !== null) {
     return new Response();
   }

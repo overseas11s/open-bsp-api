@@ -199,8 +199,8 @@ begin
   -- sender_address is a contact reference or null: the peer who authored the
   -- message (a phone/BSUID, a Slack workspace member — ties to
   -- contacts_addresses), or null when the account itself spoke. Deliverable
-  -- vs record-only is decided by content kind + status.pending, not by
-  -- authorship (see the dispatch trigger's kind whitelist).
+  -- vs record-only is decided by status.pending + content.internal, not by
+  -- authorship (see the dispatch trigger).
   -- conversation_address is the peer the conversation is with.
 
   -- Internal rows (tool traces, agent errors) are record-only and are born
@@ -266,13 +266,6 @@ as $$
 begin
   new.sender_address := coalesce(old.sender_address, new.sender_address);
   new.conversation_address := old.conversation_address;
-
-  -- Internal rows can never be armed — not even by a later merged update.
-  -- This runs BEFORE set_status (trigger order is alphabetical), so the
-  -- merge never sees a pending key.
-  if old.content->>'internal' = 'true' and new.status is not null then
-    new.status := new.status - 'pending';
-  end if;
 
   return new;
 end;

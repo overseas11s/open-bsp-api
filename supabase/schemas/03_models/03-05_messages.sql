@@ -22,9 +22,9 @@ create table public.messages (
   --   phone/BSUID, a Slack workspace member — ties to contacts_addresses,
   --   soft reference), or null when the account itself spoke (UI/AI sends,
   --   echoes, history, tool traces). Deliverability is NOT an authorship
-  --   question: the dispatch trigger arms on status.pending plus a sendable
-  --   content kind. Fill-once: a Slack echo fills null with the member who
-  --   actually sent; a non-null sender is immutable.
+  --   question: the dispatch trigger arms on status.pending plus not being
+  --   record-only (content.internal). Fill-once: a Slack echo fills null
+  --   with the member who actually sent; a non-null sender is immutable.
   conversation_address text,
   sender_address text,
   ----
@@ -183,6 +183,13 @@ when (
 )
 execute function public.dispatcher_edge_function();
 
+-- Sendability is three facts: the account authored the row (sender null),
+-- it is armed (pending — scheduled sends wait for their timestamp), and it
+-- is not record-only (content.internal, the writer-declared marker on tool
+-- traces, agent errors, internal notes). There is deliberately no kind
+-- filter: a kind no service can encode should not be inserted armed, and a
+-- writer that does gets a loud `failed` stamp from the dispatcher instead
+-- of a silent no-op here.
 create trigger handle_outgoing_message_to_dispatcher
 after insert
 on public.messages
@@ -191,17 +198,6 @@ when (
   new.sender_address is null
   and new.timestamp <= now()
   and (new.status ->> 'pending') is not null
-  -- The sendable-kind whitelist: the single source of truth for what OpenBSP
-  -- can deliver. Record-only kinds (interactive, unsupported, shares, tool
-  -- traces, …) can never dispatch, even if a writer arms them.
-  and (new.content ->> 'kind') in (
-    'text', 'audio', 'image', 'video', 'document', 'sticker', 'file',
-    'media', 'reaction', 'location', 'contacts', 'template'
-  )
-  -- Record-only rows: content.internal is the declared marker (a tool trace,
-  -- an agent error, an internal note). Their writer inserts them unarmed
-  -- (status {}), but the sendability rule should not depend on writer
-  -- discipline — so it is restated here.
   and new.content ->> 'internal' is null
 )
 execute function public.dispatcher_edge_function();
