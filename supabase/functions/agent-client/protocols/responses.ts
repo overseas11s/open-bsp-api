@@ -269,9 +269,10 @@ export class ResponsesHandler
       );
 
       if (refMessage) {
-        const tag = part.type === "text" && part.kind === "reaction"
-          ? "in-reaction-to"
-          : "in-reply-to";
+        // Reactions are DataParts since 2026-07-26; the text shape is the
+        // legacy Meta one, still around read-side. Either way the kind says
+        // what it is.
+        const tag = part.kind === "reaction" ? "in-reaction-to" : "in-reply-to";
         const snippet = serializePartAsXML(
           refMessage.content as Part & ToolInfo,
         );

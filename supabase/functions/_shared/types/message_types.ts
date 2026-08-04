@@ -146,9 +146,12 @@ export type FilePart = {
   kind: (typeof MediaTypes)[number];
   file: {
     mime_type: string;
-    uri: string; // --> internal://media/organizations/${organization_id}/attachments/${file_hash}
+    // internal://media/organizations/${organization_id}/attachments/${hash},
+    // or an external http(s) URL — those are never downloaded on our side;
+    // dispatchers pass them as links for the service to fetch itself.
+    uri: string;
     name?: string;
-    size: number;
+    size?: number; // unknown for external URLs
   };
   text?: string; // caption
   artifacts?: Part[];
@@ -287,10 +290,10 @@ export type InternalMessage =
     /**
      * Record-only: this row is never dispatched, to anyone. Declared here so
      * the marker travels with the content instead of living in a column
-     * readers must know to consult. Writers set it themselves (agent-client
-     * on tool traces and errors, API clients on internal notes); the
-     * database reads it — strips status.pending, refuses dispatch — but
-     * never stamps it.
+     * readers must know to consult. Writers set it themselves AND insert the
+     * row unarmed (status {}, no pending) — agent-client does both on tool
+     * traces and errors; the database reads the marker (dispatch and agent
+     * triggers refuse it) but never stamps or strips anything.
      */
     internal?: true;
   }

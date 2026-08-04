@@ -80,7 +80,52 @@ export async function createSignedUrl(client: SupabaseClient, uri: string) {
   return data.signedUrl;
 }
 
+// Extension → mime, for external URLs only. Deliberately small: its one job
+// is steering the media KIND (audio/image/video, else document) that callers
+// derive from the mime prefix — dispatchers pick the send endpoint by kind.
+const MIME_BY_EXTENSION: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+  mp4: "video/mp4",
+  "3gp": "video/3gpp",
+  mp3: "audio/mpeg",
+  m4a: "audio/mp4",
+  aac: "audio/aac",
+  ogg: "audio/ogg",
+  opus: "audio/opus",
+  amr: "audio/amr",
+  wav: "audio/wav",
+  pdf: "application/pdf",
+};
+
+/**
+ * External (http/https) URIs are first-class file references and are never
+ * touched: the WhatsApp and Instagram dispatchers send them as `link` — the
+ * receiving service fetches the URL itself. Metadata is derived from the URL
+ * string alone; an unknown extension means octet-stream, i.e. kind
+ * `document`.
+ */
+export function getExternalFileMetadata(uri: string) {
+  const name = new URL(uri).pathname.split("/").pop() || undefined;
+  const extension = name?.split(".").pop()?.toLowerCase();
+
+  return {
+    mime_type: (extension && MIME_BY_EXTENSION[extension]) ||
+      "application/octet-stream",
+    uri,
+    name,
+    size: undefined as number | undefined,
+  };
+}
+
 export async function getFileMetadata(client: SupabaseClient, uri: string) {
+  if (uri.startsWith("http://") || uri.startsWith("https://")) {
+    return getExternalFileMetadata(uri);
+  }
+
   const key = uri.replace(BASE_URI + "/", "");
 
   const { data } = await client

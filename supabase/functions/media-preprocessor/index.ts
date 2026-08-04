@@ -259,7 +259,9 @@ Deno.serve(async (req) => {
   // Check if we need to use File API vs inline data. Max payload size is 20MB.
   // Use 19MB limit to leave space for prompt and other request data.
   // We multiply by 1.33 to account for the base64 encoding overhead.
-  const shouldUseFileAPI = content.file.size * 1.33 > INLINE_DATA_SIZE_LIMIT;
+  // An unknown size (external URL) attempts the inline path.
+  const shouldUseFileAPI = (content.file.size ?? 0) * 1.33 >
+    INLINE_DATA_SIZE_LIMIT;
 
   if (shouldUseFileAPI) {
     return log_update_and_respond(
