@@ -303,7 +303,10 @@ export class ResponsesHandler
       now: dayjs.utc().format("dddd, YYYY-MM-DD HH:mm [UTC]"),
       user: {
         name: this.context.contact?.name,
-        phone: this.context.conversation.conversation_address
+        // The '+address' spelling is a phone-space thing; a local DM's
+        // address is a roster of agent ids, not something to dial.
+        phone: this.context.conversation.service !== "local" &&
+            this.context.conversation.conversation_address
           ? "+" + this.context.conversation.conversation_address
           : undefined,
       },

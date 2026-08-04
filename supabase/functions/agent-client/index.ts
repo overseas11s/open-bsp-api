@@ -52,6 +52,9 @@ export type AgentTool = {
  * Internal comms: the services where the peer is a colleague, not a contact.
  * `discord` and `teams` are in the service enum but have no ingestion yet —
  * listed so they start on the right side of the rule when they arrive.
+ *
+ * One carve-out: a `local` DM whose roster names an AI agent (see AI DM
+ * DETECTION below). Mirrored workspaces stay excluded wholesale.
  */
 const TEAM_CHAT_SERVICES = new Set<Database["public"]["Enums"]["service"]>([
   "local",
@@ -87,6 +90,10 @@ const MEDIA_PREPROCESSING_POLLING_INTERVAL = 5 * 1000; // 5 seconds
  * authored the row, null when the account itself did. `content.internal`
  * marks record-only rows (tool traces, agent errors), which are recorded but
  * never spoken.
+ *
+ * These two are the CONTACT-space predicates. In a local DM the peer lives in
+ * member space instead — see `fromPeer` in the handler, which picks the space
+ * by service.
  */
 const fromContact = (m: { sender_address: string | null }) =>
   m.sender_address !== null;
@@ -97,11 +104,12 @@ const spokenByUs = (m: { sender_address: string | null; content: unknown }) =>
 function getNewestIncomingMessage(
   incoming: MessageRow,
   messages: MessageRow[],
+  fromPeer: (m: MessageRow) => boolean,
 ) {
   const incomingCreatedAt = new Date(incoming.created_at);
 
   const sortedMessages = messages
-    .filter(fromContact)
+    .filter(fromPeer)
     .filter((m) => new Date(m.created_at) >= incomingCreatedAt)
     .sort((a, b) => {
       const dateA = +new Date(a.created_at);
@@ -168,35 +176,88 @@ Deno.serve(async (req) => {
 
   const { agents, ...organization } = org;
 
-  // RETRIEVE CONTACT
+  // AI DM DETECTION (local only)
+  //
+  // A local direct's address IS its roster (two agent ids, sorted,
+  // ':'-joined), and direct rosters are immutable identity — so the address
+  // alone answers "is this a DM with an AI?". The rule: exactly ONE live AI
+  // in the roster, and the author is the other slot. Requiring exactly one
+  // also refuses an AI–AI room (a service-role insert can mint one), which
+  // would otherwise be two armed repliers ping-ponging with an LLM bill
+  // attached. This re-verifies what handle_local_message_to_agent already
+  // checked: the trigger is the doorbell, this is the authority.
+
+  const roster = conv.service === "local"
+    ? conv.conversation_address?.split(":") ?? []
+    : [];
+
+  const rosterAIs = roster.length === 2
+    ? agents.filter((a) =>
+      roster.includes(a.id) && a.user_id === null && a.deleted_at === null
+    )
+    : [];
+
+  const dmAI = rosterAIs.length === 1 && rosterAIs[0].id !== incoming.agent_id
+    ? rosterAIs[0] as AgentRowWithExtra
+    : undefined;
+
+  // NO AI IN TEAM CHAT — except a DM with one.
+  //
+  // Team chat is where colleagues talk to each other, and `local` is only the
+  // half we host: a mirrored Slack workspace is the same conversation with
+  // someone else's servers in the middle. An AI agent answering a ROOM would
+  // need trigger rules this codebase does not have — who it answers, when,
+  // and without replying to every message. A DM with the AI has no such
+  // question: both slots of the address are known, one is the AI, and every
+  // peer message is addressed to it.
+
+  if (TEAM_CHAT_SERVICES.has(conv.service) && !dmAI) {
+    log.info(`Conversation ${conv.id} is team chat. Skipping response.`);
+
+    return new Response("ok", { headers: corsHeaders });
+  }
+
+  // RETRIEVE CONTACT (external services only)
   //
   // conversation_address is a soft reference (no FK, so no PostgREST embed):
   // the contact comes from its own query. On a direct chat the conversation's
   // address IS the contact's address; a group address simply matches no
   // contacts_addresses row and the contact stays null.
-
-  const { data: contact_address } = await client
-    .from("contacts_addresses")
-    .select("*, contacts (*)")
-    .eq("organization_id", conv.organization_id)
-    .eq("service", conv.service)
-    .eq("address", conv.conversation_address)
-    .maybeSingle()
-    .throwOnError();
+  //
+  // A local roster would match nothing either — the peer is a colleague, not
+  // a contact — so the DM path skips the query and shapes the author's agent
+  // row like a contact instead: the protocol handlers only want a name.
 
   let contact: ContactRow | undefined;
 
-  if (contact_address) {
-    contact = contact_address.contacts || undefined;
+  if (conv.service === "local") {
+    const author = agents.find((a) => a.id === incoming.agent_id);
 
-    if (!contact_address.extra) {
-      contact_address.extra = {};
+    if (author) {
+      contact = { name: author.name } as ContactRow;
     }
+  } else {
+    const { data: contact_address } = await client
+      .from("contacts_addresses")
+      .select("*, contacts (*)")
+      .eq("organization_id", conv.organization_id)
+      .eq("service", conv.service)
+      .eq("address", conv.conversation_address)
+      .maybeSingle()
+      .throwOnError();
 
-    if (!contact && contact_address.extra.name) {
-      contact = {
-        name: contact_address.extra.name,
-      } as ContactRow;
+    if (contact_address) {
+      contact = contact_address.contacts || undefined;
+
+      if (!contact_address.extra) {
+        contact_address.extra = {};
+      }
+
+      if (!contact && contact_address.extra.name) {
+        contact = {
+          name: contact_address.extra.name,
+        } as ContactRow;
+      }
     }
   }
 
@@ -206,41 +267,34 @@ Deno.serve(async (req) => {
     }
   }
 
-  // NO AI IN TEAM CHAT
-  //
-  // Team chat is where colleagues talk to each other, and `local` is only the
-  // half we host: a mirrored Slack workspace is the same conversation with
-  // someone else's servers in the middle. An AI agent answering there would
-  // need trigger rules this codebase does not have — who it answers, when, and
-  // without replying to every message in the room.
-  //
-  // For `local` the insert trigger cannot even reach us (it arms on
-  // sender_address, and a colleague is not a contact). For Slack it can, now
-  // that its rows carry status.pending like every other inbound message — so
-  // this is a rule, not a restatement.
-
-  if (TEAM_CHAT_SERVICES.has(conv.service)) {
-    log.info(`Conversation ${conv.id} is team chat. Skipping response.`);
-
-    return new Response("ok", { headers: corsHeaders });
-  }
-
   // AGENT SELECTION
   //
-  // The oldest active AI agent in the organization — an AI agent being one
-  // that is nobody's membership (no user_id) and has not been retired
-  // (deleted_at). There is no per-conversation override: nothing can write
-  // one, since members hold no UPDATE on conversations outside `local`.
+  // External: the oldest active AI agent in the organization — an AI agent
+  // being one that is nobody's membership (no user_id) and has not been
+  // retired (deleted_at). There is no per-conversation override: nothing can
+  // write one, since members hold no UPDATE on conversations outside `local`.
+  //
+  // Local DM: there is nothing to select — the address names the agent.
   //
   // Selected before the delay because the delay is the agent's own.
 
-  const agent = agents
-    .filter((a) =>
-      a.user_id === null && a.deleted_at === null &&
-      a.extra?.mode !== "inactive"
-    )
-    .sort((a, b) => +new Date(a.created_at) - +new Date(b.created_at))
-    .at(0) as AgentRowWithExtra | undefined;
+  const agent = conv.service === "local"
+    ? (dmAI?.extra?.mode !== "inactive" ? dmAI : undefined)
+    : agents
+      .filter((a) =>
+        a.user_id === null && a.deleted_at === null &&
+        a.extra?.mode !== "inactive"
+      )
+      .sort((a, b) => +new Date(a.created_at) - +new Date(b.created_at))
+      .at(0) as AgentRowWithExtra | undefined;
+
+  // Authorship is space-relative: outside, the peer is whoever carries a
+  // sender_address; in a local DM the peer is any member row that is not the
+  // AI's own — and never an internal one (a note is addressed to nobody).
+  const fromPeer = (m: MessageRow) =>
+    conv.service === "local"
+      ? m.agent_id !== null && m.agent_id !== dmAI?.id && !isInternal(m)
+      : fromContact(m);
 
   // WAIT FOR A NEWER MESSAGE
 
@@ -275,7 +329,7 @@ Deno.serve(async (req) => {
   messages.reverse();
 
   // CHECK IF THERE IS A NEWER MESSAGE
-  const newestMessage = getNewestIncomingMessage(incoming, messages);
+  const newestMessage = getNewestIncomingMessage(incoming, messages, fromPeer);
 
   if (newestMessage.id !== incoming.id) {
     // Then the newest message is not the incoming one that triggered this edge function.
@@ -294,7 +348,7 @@ Deno.serve(async (req) => {
   // inbound message of the conversation.
   const firstMessageIndex = messages.findLastIndex(
     (m) =>
-      fromContact(m) &&
+      fromPeer(m) &&
       m.content.type === "text" &&
       typeof m.content.text === "string" &&
       m.content.text.startsWith("/new"),
@@ -335,8 +389,11 @@ Deno.serve(async (req) => {
   // The agent's, not the organization's — so it needs an agent; without
   // one, nobody greets. Still ahead of asking
   // the agent anything: it replaces the first answer rather than preceding it.
+  //
+  // Not in a DM: the member opened it, and the first word is theirs.
 
   if (
+    conv.service !== "local" &&
     agent.extra.welcome_message &&
     !messages.some(spokenByUs)
   ) {
@@ -372,12 +429,19 @@ Deno.serve(async (req) => {
   // TYPING INDICATOR
 
   const indicateTyping = async (unread?: boolean) => {
+    const ts = new Date().toISOString();
+
     const { error: typingIndicatorError } = await client
       .from("messages")
       .update({
         status: {
-          ...(unread && { read: new Date().toISOString() }),
-          typing: new Date().toISOString(),
+          // In team chat a read belongs to ONE member, so it is a map keyed
+          // by the reader (the AI's agent id); outside it stays the scalar
+          // receipt the peer's service understands.
+          ...(unread && {
+            read: conv.service === "local" ? { [agent.id]: ts } : ts,
+          }),
+          typing: ts,
         },
       })
       .eq("id", incoming.id);
@@ -500,12 +564,23 @@ Deno.serve(async (req) => {
 
       // CHECK IF THERE IS A NEWER INCOMING MESSAGE (posterior to the incoming one)
 
-      const { data: new_message } = await client
+      const newerQuery = client
         .from("messages")
         .select()
         .eq("conversation_id", incoming.conversation_id)
-        .not("sender_address", "is", null)
-        .gt("created_at", incoming.created_at)
+        .gt("created_at", incoming.created_at);
+
+      // The fromPeer predicate, expressed as filters the database can apply.
+      if (conv.service === "local") {
+        newerQuery
+          .not("agent_id", "is", null)
+          .neq("agent_id", agent.id)
+          .is("content->internal", null);
+      } else {
+        newerQuery.not("sender_address", "is", null);
+      }
+
+      const { data: new_message } = await newerQuery
         .order("created_at", { ascending: true })
         .limit(1)
         .maybeSingle()
@@ -875,6 +950,11 @@ Deno.serve(async (req) => {
 
       const output_messages = response.messages.map((message, index) => ({
         ...message,
+        // Record-only rows are born unarmed: the writer declares it, rather
+        // than leaning on the before-insert strip (which stays, as the
+        // invariant for writers that are not this one). Same stored value
+        // either way: {}.
+        ...(isInternal(message) && { status: {} }),
         // Make sure the messages have the correct addressing
         organization_id: conv.organization_id,
         conversation_id: conv.id,
