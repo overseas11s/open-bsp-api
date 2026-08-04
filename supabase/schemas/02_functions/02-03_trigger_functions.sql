@@ -203,13 +203,11 @@ begin
   -- authorship (see the dispatch trigger's kind whitelist).
   -- conversation_address is the peer the conversation is with.
 
-  -- Internal rows (tool traces, notes, agent errors) are record-only and
-  -- never need the pending arm bit — strip it so no automation (dispatch,
-  -- retry sweeps, media preprocessing) can ever pick them up.
-  -- content.internal is the one marker, declared by the writer.
-  if new.content->>'internal' = 'true' then
-    new.status := new.status - 'pending';
-  end if;
+  -- Internal rows (tool traces, agent errors) are record-only and are born
+  -- unarmed by their writer: agent-client — the one client that writes them —
+  -- inserts them with status {}. There is no strip here; pending is the
+  -- declared arm bit, and not carrying it is also how history-synced rows
+  -- pass through without waking any automation.
 
   -- If conversation_id is already provided, proceed as is
   if new.conversation_id is not null then

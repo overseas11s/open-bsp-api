@@ -143,9 +143,10 @@ execute function public.edge_function('/agent-client', 'post');
 -- The internal mirror of the trigger above: `agent_id` is authorship in
 -- member space the way `sender_address` is in contact space. Only `local`
 -- and only armed rows; whether the room actually IS an AI DM is the
--- function's question — a WHEN clause cannot look inside the address. No
--- content.internal clause for the same reason the external trigger has
--- none: before_insert strips `pending` on internal rows.
+-- function's question — a WHEN clause cannot look inside the address. The
+-- internal clause mirrors the dispatch trigger's: writers insert record-only
+-- rows unarmed, but an AI waking up to a tool trace should not depend on
+-- writer discipline either.
 create trigger handle_local_message_to_agent
 after insert
 on public.messages
@@ -154,6 +155,7 @@ when (
   new.agent_id is not null
   and new.service = 'local'::public.service
   and (new.status ->> 'pending') is not null
+  and new.content ->> 'internal' is null
 )
 execute function public.local_message_to_agent();
 
@@ -197,10 +199,9 @@ when (
     'media', 'reaction', 'location', 'contacts', 'template'
   )
   -- Record-only rows: content.internal is the declared marker (a tool trace,
-  -- an agent error, an internal note). Also stripped of status.pending by
-  -- before_insert, so this line is belt and suspenders — stated here because
-  -- this WHEN clause is the sendability rule, and the rule should not depend
-  -- on a strip having happened.
+  -- an agent error, an internal note). Their writer inserts them unarmed
+  -- (status {}), but the sendability rule should not depend on writer
+  -- discipline — so it is restated here.
   and new.content ->> 'internal' is null
 )
 execute function public.dispatcher_edge_function();
