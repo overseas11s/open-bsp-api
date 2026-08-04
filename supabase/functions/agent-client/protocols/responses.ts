@@ -178,6 +178,16 @@ export class ResponsesHandler
     return sorted;
   }
 
+  private removeOtherAgentsToolMessages(messages: MessageRow[]): MessageRow[] {
+    return messages.filter((message) => {
+      if (isToolTrace(message)) {
+        return message.agent_id === this.context.agent.id;
+      }
+
+      return true;
+    });
+  }
+
   private removeUnpairedToolMessages(messages: MessageRow[]): MessageRow[] {
     const toolUseSet = new Set<string>();
     const pairedToolUseSet = new Set<string>();
@@ -281,13 +291,18 @@ export class ResponsesHandler
       messages = messages.slice(-max);
     }
 
-    // Build external_id index for reply/reaction context resolution.
+    // Another agent's tool rows would otherwise render as THIS agent's own
+    // function_call items — toResponseInput maps any local tool trace the
+    // same way regardless of author.
+    messages = this.removeOtherAgentsToolMessages(messages);
+
+    // Reply/reaction context index. re_message_id carries an external id on
+    // mirrored services and a row id on local ones (a DM reply has no
+    // external id to point at), so index by both.
     this.messagesByExternalId = new Map(
-      messages
-        .filter((m): m is MessageRow & { external_id: string } =>
-          !!m.external_id
-        )
-        .map((m) => [m.external_id, m]),
+      messages.flatMap((m): [string, MessageRow][] =>
+        m.external_id ? [[m.id, m], [m.external_id, m]] : [[m.id, m]]
+      ),
     );
 
     messages = this.removeUnpairedToolMessages(messages);

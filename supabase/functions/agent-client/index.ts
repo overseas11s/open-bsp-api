@@ -591,6 +591,10 @@ Deno.serve(async (req) => {
           `Newer message ${new_message.id} for conversation ${conv.id} found while processing tool use messages and/or waiting for pending preprocessing. Skipping response.`,
         );
 
+        // The one exit that bypasses the clearInterval below — without this,
+        // the keep-alive goes on stamping `typing` until the isolate dies.
+        clearInterval(typingInterval);
+
         return new Response("ok", { headers: corsHeaders });
       }
 
@@ -1015,7 +1019,7 @@ Deno.serve(async (req) => {
   }
   */
 
-  return new Response(JSON.stringify(messages), {
-    headers: { "Content-Type": "application/json" },
-  });
+  // The caller is pg_net, which discards the body — don't serialize the
+  // whole conversation into it.
+  return new Response("ok", { headers: corsHeaders });
 });

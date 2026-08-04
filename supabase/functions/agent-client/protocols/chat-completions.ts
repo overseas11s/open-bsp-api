@@ -357,17 +357,19 @@ export class ChatCompletionsHandler
       messages = messages.slice(-max);
     }
 
-    // TODO: Commented out, waiting for multi-agent support.
-    //messages = this.removeOtherAgentsToolMessages(messages);
+    // Another agent's tool rows would otherwise render as THIS agent's own
+    // tool_calls — toChatCompletion maps any local tool trace to the
+    // assistant role regardless of author.
+    messages = this.removeOtherAgentsToolMessages(messages);
     // TODO: remove tool messages of missing tool definitions (this.tools)?
     // They tend to confuse the model with unexpected tool calls.
-    // Build external_id index for reply/reaction context resolution
+    // Reply/reaction context index. re_message_id carries an external id on
+    // mirrored services and a row id on local ones (a DM reply has no
+    // external id to point at), so index by both.
     this.messagesByExternalId = new Map(
-      messages
-        .filter((m): m is MessageRow & { external_id: string } =>
-          !!m.external_id
-        )
-        .map((m) => [m.external_id, m]),
+      messages.flatMap((m): [string, MessageRow][] =>
+        m.external_id ? [[m.id, m], [m.external_id, m]] : [[m.id, m]]
+      ),
     );
 
     messages = this.removeUnpairedToolMessages(messages);
