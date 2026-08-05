@@ -106,10 +106,10 @@ with check (
 -- restricted by shape, so visible means participating. You can only add people
 -- to rooms you are in.
 --
--- `direct` and `multiple` are absent on purpose, and it is not a size
--- distinction: their roster IS their identity (it is literally their address),
--- so adding a person would not extend the conversation, it would name a
--- different one. Starting that conversation is how you get it.
+-- `direct` is absent on purpose, at any size: its roster IS its identity (it
+-- is literally its address), so adding a person would not extend the
+-- conversation, it would name a different one. Starting that conversation is
+-- how you get it.
 --
 -- `channel` is absent too — joining one is self-service, above.
 create policy "members can manage local group membership"
@@ -133,7 +133,7 @@ with check (
 );
 
 -- Kicking (local groups) and leaving (local channels). Same rosters-are-fixed
--- rule as above: there is no leaving a direct or multiple, because the room
+-- rule as above: there is no leaving a direct, because the room
 -- without you is a different room.
 --
 -- Mirror services are absent: a Slack membership row is Slack's fact, and

@@ -44,13 +44,13 @@ import type {
   UserChangeEvent,
 } from "@slack/types";
 import {
+  type ChannelShape,
   channelTypeFromChannel,
   channelTypeFromMessageEvent,
   type SlackEnvelope,
   type SlackFile,
   type SlackMessageEvent,
 } from "../_shared/slack_events.ts";
-import type { ConversationType } from "../_shared/types/conversation_types.ts";
 
 export type { SlackEnvelope };
 
@@ -201,15 +201,19 @@ async function setChannelFacts(
     .throwOnError();
 }
 
-/** The channel's shape, which lives in a column of its own. */
+/** The channel's shape: `type` in its own column, arity in extra (merged by
+ * the set_extra trigger, and only ever written true — absent means 1:1). */
 async function setConversationType(
   ctx: Ctx,
   conversation_id: string,
-  type: ConversationType,
+  shape: ChannelShape,
 ): Promise<void> {
   await ctx.client
     .from("conversations")
-    .update({ type })
+    .update({
+      type: shape.type,
+      ...(shape.is_multiple && { extra: { is_multiple: true } }),
+    })
     .eq("id", conversation_id)
     .throwOnError();
 }
@@ -235,7 +239,7 @@ function botIsAuthorized(
 async function ensureConversation(
   ctx: Ctx,
   channel: string,
-  channel_type?: ConversationType,
+  channel_type?: ChannelShape,
 ): Promise<string> {
   const { data: existing } = await ctx.client
     .from("conversations")
@@ -279,12 +283,13 @@ async function ensureConversation(
       service: "slack" as const,
       organization_address: ctx.team,
       address: channel,
-      type: resolved,
+      type: resolved?.type,
       // Always written, including false: absent means not shared, and every
       // Slack conversation hangs off the ownerless anchor, so leaving it out
       // would be trusting a default we do not want to depend on.
       extra: {
         is_bot_member: botIsAuthorized(ctx, authorizations),
+        ...(resolved?.is_multiple && { is_multiple: true }),
       },
     })
     .select("id")
@@ -323,7 +328,7 @@ async function ensureConversation(
 async function resolveChannelType(
   ctx: Ctx,
   channel: string,
-): Promise<ConversationType | undefined> {
+): Promise<ChannelShape | undefined> {
   const token = await anyWorkspaceToken(ctx);
   if (!token) return undefined;
 

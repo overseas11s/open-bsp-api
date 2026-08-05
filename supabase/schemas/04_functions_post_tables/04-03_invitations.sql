@@ -38,8 +38,8 @@ begin
   end if;
 
   -- Revive a former member rather than mint a second agent: the agent id is
-  -- named by message authorship and by the ADDRESS of every local direct and
-  -- multiple they were in, so a new id would strand both — the old DM would
+  -- named by message authorship and by the ADDRESS of every local direct
+  -- they were in, so a new id would strand both — the old DM would
   -- have no live participant and a new one would appear beside it. This is
   -- also why the unique index on (organization_id, user_id) is total rather
   -- than partial on deleted_at: it has to see the marked row to conflict with

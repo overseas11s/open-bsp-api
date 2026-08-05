@@ -11,8 +11,8 @@ create table public.conversations (
   -- `local` has no external peer, so it addresses itself, in one of two ways
   -- (before_insert_on_conversations):
   --
-  --   roster   direct and multiple are DEFINED by who is in them, so the
-  --            address IS the participant list — agent ids, sorted, joined by
+  --   roster   a direct is DEFINED by who is in it — at any arity — so the
+  --            address IS the participant list: agent ids, sorted, joined by
   --            ':'. Canonical, so the unique index below is what answers "does
   --            this conversation already exist between these people", for two
   --            participants and for eight alike.
@@ -26,17 +26,18 @@ create table public.conversations (
   name text,
   -- The shape of the channel, in one cross-service vocabulary:
   --
-  --   direct     1:1        WhatsApp/Instagram DM, Slack im
-  --   multiple   ad-hoc N   Slack mpim, Teams group chat
-  --   group      private N  WhatsApp group, Slack/Teams private channel
-  --   channel    public N   Slack public channel
-  --   broadcast  fan-out    WhatsApp broadcast list
+  --   direct     member-defined  WhatsApp/Instagram DM, Slack im AND mpim
+  --   group      private N       WhatsApp group, Slack/Teams private channel
+  --   channel    public N        Slack public channel
+  --   broadcast  fan-out         WhatsApp broadcast list
   --
-  -- direct and multiple differ only in size; both are defined by their roster
-  -- and neither can be joined or left. group and channel are named containers
-  -- with a membership that changes. broadcast is not a conversation anyone is
-  -- in — it fans out to N individual chats on the receiving side — and exists
-  -- here because production already carries one (`…@broadcast`).
+  -- The cut is identity, not arity: a direct IS its member set — at any size
+  -- (a Slack mpim is a multi-party direct) — so it can be neither joined nor
+  -- left; adding a person names a different conversation. group and channel
+  -- are named containers with a membership that changes. broadcast is not a
+  -- conversation anyone is in — it fans out to N individual chats on the
+  -- receiving side — and exists here because production already carries one
+  -- (`…@broadcast`).
   --
   -- `text` + a check, deliberately not an enum: this column is referenced by
   -- an RLS policy, and `db diff` cannot add a value to an enum in that
@@ -58,8 +59,8 @@ create table public.conversations (
   -- unless a connector said otherwise (generic-webhook states `group` for
   -- whatsapp-web group JIDs before the message lands).
   type text,
-  -- Holds ingestor-owned facts (is_bot_member, channel_archived, topic,
-  -- purpose) as well as cosmetic ones. Safe together because 05-03 grants no
+  -- Holds ingestor-owned facts (is_bot_member, is_multiple, channel_archived,
+  -- topic, purpose) as well as cosmetic ones. Safe together because 05-03 grants no
   -- API role UPDATE on any service but `local`: the policy is what keeps
   -- members out, so nothing here needs a column of its own.
   extra jsonb,
@@ -88,7 +89,7 @@ alter table only public.conversations
 add constraint conversations_type_check
 check (
   type is null
-  or type in ('direct', 'multiple', 'group', 'channel', 'broadcast')
+  or type in ('direct', 'group', 'channel', 'broadcast')
 );
 
 -- A conversation IS a channel: one row per peer on an account, for the life of

@@ -82,6 +82,13 @@ export type ConversationExtra = {
   /** UI preferences; moving to conversations_agents.extra, where they are per-member. */
   archived?: string;
   pinned?: string;
+  /**
+   * A member-defined room (`type` = 'direct') with more than two people —
+   * Slack's mpim. The arity a mirror service's opaque channel id cannot show;
+   * only ever written true, absent means 1:1. `local` never writes it: a
+   * roster address carries its own arity.
+   */
+  is_multiple?: boolean;
   // Slack (service = 'slack'; address = channel id)
   /**
    * Whether our bot is a member of this channel. The whole shared-inbox

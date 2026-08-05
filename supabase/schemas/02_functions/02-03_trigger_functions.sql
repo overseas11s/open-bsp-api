@@ -35,7 +35,7 @@ $$;
 -- the parent can never drift out from under its rows.
 --
 -- `type` is immutable to API roles for a sharper reason: retyping a private
--- `multiple` as `channel` publishes everyone else's messages to the whole
+-- `direct` as `channel` publishes everyone else's messages to the whole
 -- organization, and any one participant could do it with no role to stop them.
 -- The service role keeps the write, because Slack really does convert a
 -- private channel to a public one and the sync must follow.
@@ -153,7 +153,7 @@ $$;
 --
 -- An agent is referenced by things that outlive their membership: message
 -- authorship, and — since local conversations are identified by their roster —
--- the very ADDRESS of every direct and multiple they are in. Removing the row
+-- the very ADDRESS of every direct they are in. Removing the row
 -- cascades away their participation while the address goes on naming them,
 -- leaving a conversation that can never be repaired and a roster slot occupied
 -- forever.
@@ -434,14 +434,14 @@ $$;
 -- Where the participants come from depends on the shape, and it is the same
 -- split as the address (before_insert_on_conversations):
 --
---   direct, multiple  The roster IS the identity, so it is read straight back
---                     out of the canonical address — which is why they are
---                     always roster-addressed, including a note to self.
---                     Fixed here, for good: 05-12 grants no member insert or
---                     delete for these two, because changing who is in one
---                     would make it a different conversation.
---   group, channel    Membership is mutable and starts with the creator alone;
---                     everyone else arrives through 05-12.
+--   direct          The roster IS the identity, so it is read straight back
+--                   out of the canonical address — which is why a direct is
+--                   always roster-addressed, including a note to self. Fixed
+--                   here, for good: 05-12 grants no member insert or delete
+--                   for it, because changing who is in one would make it a
+--                   different conversation.
+--   group, channel  Membership is mutable and starts with the creator alone;
+--                   everyone else arrives through 05-12.
 --
 -- SECURITY DEFINER: conversations_agents is service-managed for the shapes
 -- that matter (05-12), so the caller has no INSERT of their own here. A
@@ -470,7 +470,7 @@ begin
   from public.agents a
   where a.organization_id = new.organization_id
     and case
-      when new.type in ('direct', 'multiple')
+      when new.type = 'direct'
       then a.id::text = any (string_to_array(new.address, ':'))
       else a.user_id = auth.uid()
     end
@@ -499,10 +499,8 @@ begin
   --                     order) and this canonicalises to sorted agent ids.
   --                     That canonical form IS the identity, so the unique
   --                     index answers "does this conversation already exist
-  --                     between these people" with a conflict — for two
-  --                     participants and for eight alike. direct and multiple
-  --                     differ only in how many ids there are, so neither is
-  --                     a special case of the other.
+  --                     between these people" with a conflict — a pair and a
+  --                     party of eight are the same shape: `direct`.
   --
   -- The author is always in the room they open, so it is added rather than
   -- demanded: you cannot start a conversation you are not in, and omitting the
@@ -510,7 +508,7 @@ begin
   -- what the UI's "new conversation" has always produced. One of those per
   -- member, for the same reason there is one DM per pair.
   if new.service = 'local'
-    and (new.type is null or new.type in ('direct', 'multiple'))
+    and (new.type is null or new.type = 'direct')
   then
     -- Null for the service role, which has no agent of its own; a roster it
     -- states is taken as given.
@@ -553,13 +551,7 @@ begin
 
     if _roster is not null then
       new.address := array_to_string(_roster, ':');
-
-      -- Size decides the shape, so the two can never disagree.
-      if array_length(_roster, 1) > 2 then
-        new.type := 'multiple';
-      else
-        new.type := 'direct';
-      end if;
+      new.type := 'direct';
     end if;
   end if;
 

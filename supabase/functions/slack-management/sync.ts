@@ -187,7 +187,7 @@ async function ensureConversation(
     .maybeSingle()
     .throwOnError();
 
-  const type = channelTypeFromChannel(channel);
+  const { type, is_multiple } = channelTypeFromChannel(channel);
 
   // DMs are titled by the counterpart; channels by their Slack name.
   const counterpart = channel.user ? usersById.get(channel.user) : undefined;
@@ -200,6 +200,8 @@ async function ensureConversation(
     topic: channel.topic?.value || undefined,
     purpose: channel.purpose?.value || undefined,
     user: channel.user,
+    // Only ever written true — absent means 1:1.
+    is_multiple,
   };
 
   if (existing) {

@@ -8,7 +8,7 @@
   `sender_address` set, outgoing = null).
 - `group_address` was absorbed by the peer address (`conversations.address`,
   `messages.conversation_address`); use `conversations.type` to distinguish
-  between direct, multiple, group, channel.
+  between direct, group, channel.
 - `conversations.status` is dropped.
 - Accounts are keyed `(organization_id, service, address)`: add `service` to
   lookups.

@@ -154,9 +154,9 @@ declare
   auth_token text;
   request_id bigint;
 begin
-  -- Direct only, for now: deleting this guard is the entire `multiple`
-  -- extension. Group/channel addresses are a single uuid and fail it too,
-  -- and `is distinct from` keeps a peerless row (null address) out.
+  -- Two-member rosters only, for now: deleting this guard is the entire
+  -- multi-party extension. Group/channel addresses are a single uuid and fail
+  -- it too, and `is distinct from` keeps a peerless row (null address) out.
   if array_length(segments, 1) is distinct from 2 then
     return new;
   end if;

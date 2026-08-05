@@ -119,6 +119,14 @@ export type SlackEnvelope = {
 };
 
 /**
+ * A channel's shape in our vocabulary. An mpim is a multi-party `direct` —
+ * identity is the roster either way — and `is_multiple` carries the arity,
+ * which on a mirror service the address (an opaque channel id) cannot show.
+ * Present only when true; it lands in conversations.extra.
+ */
+export type ChannelShape = { type: ConversationType; is_multiple?: true };
+
+/**
  * Authoritative classification, from a channel object (conversations.info,
  * users.conversations). The only source that always distinguishes public
  * from private — shared by the webhook and the management sync so the two
@@ -128,14 +136,14 @@ export function channelTypeFromChannel(channel: {
   is_im?: boolean;
   is_mpim?: boolean;
   is_private?: boolean;
-}): ConversationType {
+}): ChannelShape {
   return channel.is_im
-    ? "direct"
+    ? { type: "direct" }
     : channel.is_mpim
-    ? "multiple"
+    ? { type: "direct", is_multiple: true }
     : channel.is_private
-    ? "group"
-    : "channel";
+    ? { type: "group" }
+    : { type: "channel" };
 }
 
 /**
@@ -148,16 +156,16 @@ export function channelTypeFromChannel(channel: {
  */
 export function channelTypeFromMessageEvent(
   channel_type: SlackMessageEvent["channel_type"],
-): ConversationType | undefined {
+): ChannelShape | undefined {
   switch (channel_type) {
     case "channel":
-      return "channel";
+      return { type: "channel" };
     case "group":
-      return "group";
+      return { type: "group" };
     case "im":
-      return "direct";
+      return { type: "direct" };
     case "mpim":
-      return "multiple";
+      return { type: "direct", is_multiple: true };
     default:
       return undefined;
   }

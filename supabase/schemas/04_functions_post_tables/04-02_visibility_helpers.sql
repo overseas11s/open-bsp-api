@@ -25,7 +25,7 @@
 --   local  One ownerless account per org hosts the whole internal chat, so
 --          the account says nothing. Shape decides instead, exactly as it
 --          would in Slack or Teams: `channel` is open to the org, everything
---          else (direct, multiple, group) is for its participants.
+--          else (direct, group) is for its participants.
 --
 -- Both services are named explicitly, rather than reading a flag every
 -- ingestor would have to remember to write — an absent flag fails open, and
