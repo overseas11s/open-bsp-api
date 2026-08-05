@@ -22,7 +22,7 @@ create table public.conversations (
   -- Keeping it NOT NULL is what lets the identity index below be a plain
   -- unique constraint instead of one whose behaviour depends on NULL
   -- semantics.
-  conversation_address text not null,
+  address text not null,
   name text,
   -- The shape of the channel, in one cross-service vocabulary:
   --
@@ -115,7 +115,7 @@ check (
 -- that already runs a trigger cascade.
 create unique index conversations_identity_idx
 on public.conversations
-using btree (organization_id, organization_address, service, conversation_address);
+using btree (organization_id, organization_address, service, address);
 
 -- Cascade (decided 2026-07-24): deleting a connected account deletes its
 -- conversations, and messages cascade via conversations_id in turn.
@@ -134,9 +134,9 @@ create index conversations_updated_at_idx
 on public.conversations
 using btree (updated_at);
 
-create index conversations_conversation_address_idx
+create index conversations_address_idx
 on public.conversations
-using btree (conversation_address);
+using btree (address);
 
 create trigger handle_new_conversation
 before insert

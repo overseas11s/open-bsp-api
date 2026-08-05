@@ -159,10 +159,9 @@ async function syncDirectory(
 
 /**
  * Finds or creates the conversation for a Slack channel. Conversations are
- * anchored to the workspace address (team id) and keyed by
- * conversation_address = channel id; no unique constraint backs this yet, so
- * a webhook/sync race can in theory duplicate — the same lookup-then-insert
- * the message trigger uses, acceptable for now.
+ * anchored to the workspace address (team id) and keyed by address = channel
+ * id — unique under conversations_identity_idx, so a webhook/sync race
+ * cannot duplicate: the loser's insert conflicts and the webhook retries.
  */
 async function ensureConversation(
   client: SupabaseClient,
@@ -183,7 +182,7 @@ async function ensureConversation(
     .select("id")
     .eq("organization_id", organization_id)
     .eq("organization_address", team_id)
-    .eq("conversation_address", channel.id)
+    .eq("address", channel.id)
     .eq("service", "slack")
     .maybeSingle()
     .throwOnError();
@@ -223,7 +222,7 @@ async function ensureConversation(
       organization_id,
       service: "slack" as const,
       organization_address: team_id,
-      conversation_address: channel.id,
+      address: channel.id,
       name,
       type,
       extra,

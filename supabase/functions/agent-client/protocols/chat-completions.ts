@@ -385,8 +385,8 @@ export class ChatCompletionsHandler
         // The '+address' spelling is a phone-space thing; a local DM's
         // address is a roster of agent ids, not something to dial.
         phone: this.context.conversation.service !== "local" &&
-            this.context.conversation.conversation_address
-          ? "+" + this.context.conversation.conversation_address
+            this.context.conversation.address
+          ? "+" + this.context.conversation.address
           : undefined,
       },
     };
@@ -655,7 +655,7 @@ export class ChatCompletionsHandler
           organization_id: conversation.organization_id,
           service: conversation.service,
           organization_address: conversation.organization_address,
-          conversation_address: conversation.conversation_address,
+          conversation_address: conversation.address,
           agent_id: agent.id,
           content: {
             version: "1",
@@ -682,7 +682,7 @@ export class ChatCompletionsHandler
           organization_id: conversation.organization_id,
           service: conversation.service,
           organization_address: conversation.organization_address,
-          conversation_address: conversation.conversation_address,
+          conversation_address: conversation.address,
           agent_id: agent.id,
           content: {
             version: "1",
@@ -764,7 +764,7 @@ export class ChatCompletionsHandler
           organization_id: conversation.organization_id,
           service: conversation.service,
           organization_address: conversation.organization_address,
-          conversation_address: conversation.conversation_address,
+          conversation_address: conversation.address,
           agent_id: agent.id,
           content: {
             version: "1" as const,
@@ -804,7 +804,7 @@ export class ChatCompletionsHandler
             organization_id: conversation.organization_id,
             service: conversation.service,
             organization_address: conversation.organization_address,
-            conversation_address: conversation.conversation_address,
+            conversation_address: conversation.address,
             agent_id: agent.id,
             content: {
               version: "1",

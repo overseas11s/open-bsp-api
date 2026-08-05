@@ -37,11 +37,11 @@ export function contextHeaders(
     "conversation-id": context.conversation.id,
     "agent-id": context.agent.id,
     ...(context.contact?.id && { "contact-id": context.contact.id }),
-    // Header name kept for the agent APIs that already read it; the value
-    // now comes from conversation_address, which says the same thing for a
-    // direct chat and something truthful for a group.
-    ...(context.conversation.conversation_address &&
-      { "contact-address": context.conversation.conversation_address }),
+    // Header name kept for the agent APIs that already read it; the value is
+    // the conversation's address, which says the same thing for a direct chat
+    // and something truthful for a group.
+    ...(context.conversation.address &&
+      { "contact-address": context.conversation.address }),
   };
 }
 

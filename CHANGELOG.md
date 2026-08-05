@@ -3,12 +3,13 @@
 ## v1
 
 - `messages.direction` and `contact_address` (conversations, messages) are
-  dropped; superseded by `conversation_address` and `sender_address` (incoming =
+  dropped; superseded by `conversations.address`,
+  `messages.conversation_address` and `sender_address` (incoming =
   `sender_address` set, outgoing = null). Selecting or filtering on the old
   columns 400s.
-- `group_address` was absorbed by `conversation_address` (conversations,
-  messages); use `conversations.type` to distinguish between direct, multiple,
-  group, channel.
+- `group_address` was absorbed by the peer address (`conversations.address`,
+  `messages.conversation_address`); use `conversations.type` to distinguish
+  between direct, multiple, group, channel.
 - `conversations.status` is dropped — filtering on it 400s.
 - Accounts are keyed `(organization_id, service, address)`: add `service` to
   lookups.

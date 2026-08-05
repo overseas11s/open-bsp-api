@@ -190,7 +190,7 @@ export async function listConversations(params: ListConversationsParams) {
   }
 
   // Query 2: Fetch full conversation data for the selected IDs. The contact
-  // comes from its own query below — conversation_address is a soft
+  // comes from its own query below — the conversation's address is a soft
   // reference, so there is no FK for PostgREST to embed through.
   const { data: conversations } = await params.supabase
     .from("conversations")
@@ -211,7 +211,7 @@ export async function listConversations(params: ListConversationsParams) {
     .eq("service", "whatsapp")
     .in(
       "address",
-      conversations.map((c) => c.conversation_address),
+      conversations.map((c) => c.address),
     )
     .throwOnError();
 
@@ -229,13 +229,13 @@ export async function listConversations(params: ListConversationsParams) {
       phone: account.phone,
     },
     conversations: sortedConversations.map((c) => {
-      const contactAddress = contactByAddress.get(c.conversation_address);
+      const contactAddress = contactByAddress.get(c.address);
 
       return {
         contact: {
           name: contactAddress?.contact?.name ||
             contactAddress?.extra?.name || "Unknown",
-          phone: c.conversation_address,
+          phone: c.address,
         },
         unread: countUnread(c.messages),
         last_message: c.messages?.length
@@ -291,7 +291,7 @@ export async function fetchConversation(params: FetchConversationParams) {
       messages(sender_address, content, timestamp, status)
     `)
     .eq("organization_id", params.orgId)
-    .eq("conversation_address", contactPhone)
+    .eq("address", contactPhone)
     .eq("organization_address", account.address)
     .eq("service", "whatsapp")
     .is("messages.content->internal", null)

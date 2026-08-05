@@ -752,7 +752,7 @@ export type Database = {
       }
       conversations: {
         Row: {
-          conversation_address: string
+          address: string
           created_at: string
           extra: Json | null
           id: string
@@ -764,7 +764,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          conversation_address: string
+          address: string
           created_at?: string
           extra?: Json | null
           id?: string
@@ -776,7 +776,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
-          conversation_address?: string
+          address?: string
           created_at?: string
           extra?: Json | null
           id?: string

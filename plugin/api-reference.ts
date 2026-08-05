@@ -109,7 +109,7 @@ All tables are scoped by \`organization_id\` via Row Level Security (RLS).
 | organization_address | text | |
 | name | text | |
 | extra | jsonb | |
-| conversation_address | text | the peer: individual or group/channel address |
+| address | text | the peer: individual or group/channel address |
 | created_at | timestamptz | default: now() |
 | updated_at | timestamptz | default: now() |
 
@@ -239,7 +239,7 @@ Types: text, file, data. Kinds vary by type (text: text/reaction/caption; file: 
 \`GET /rest/v1/contacts?id=eq.<uuid>&select=*,contacts_addresses(*)\`
 
 **Recent conversations:**
-\`GET /rest/v1/conversations?select=id,conversation_address,updated_at,name&order=updated_at.desc&limit=10\`
+\`GET /rest/v1/conversations?select=id,address,updated_at,name&order=updated_at.desc&limit=10\`
 
 **Messages in a conversation:**
 \`GET /rest/v1/messages?conversation_id=eq.<uuid>&select=id,sender_address,content,timestamp&order=timestamp.asc\`

@@ -187,9 +187,7 @@ Deno.serve(async (req) => {
   // attached. This re-verifies what handle_local_message_to_agent already
   // checked: the trigger is the doorbell, this is the authority.
 
-  const roster = conv.service === "local"
-    ? conv.conversation_address?.split(":") ?? []
-    : [];
+  const roster = conv.service === "local" ? conv.address?.split(":") ?? [] : [];
 
   const rosterAIs = roster.length === 2
     ? agents.filter((a) =>
@@ -219,10 +217,10 @@ Deno.serve(async (req) => {
 
   // RETRIEVE CONTACT (external services only)
   //
-  // conversation_address is a soft reference (no FK, so no PostgREST embed):
-  // the contact comes from its own query. On a direct chat the conversation's
-  // address IS the contact's address; a group address simply matches no
-  // contacts_addresses row and the contact stays null.
+  // The conversation's address is a soft reference (no FK, so no PostgREST
+  // embed): the contact comes from its own query. On a direct chat the
+  // conversation's address IS the contact's address; a group address simply
+  // matches no contacts_addresses row and the contact stays null.
   //
   // A local roster would match nothing either — the peer is a colleague, not
   // a contact — so the DM path skips the query and shapes the author's agent
@@ -242,7 +240,7 @@ Deno.serve(async (req) => {
       .select("*, contacts (*)")
       .eq("organization_id", conv.organization_id)
       .eq("service", conv.service)
-      .eq("address", conv.conversation_address)
+      .eq("address", conv.address)
       .maybeSingle()
       .throwOnError();
 
@@ -402,7 +400,7 @@ Deno.serve(async (req) => {
       conversation_id: conv.id,
       service: conv.service,
       organization_address: conv.organization_address,
-      conversation_address: conv.conversation_address,
+      conversation_address: conv.address,
       agent_id: agent.id,
       content: {
         version: "1",
@@ -890,7 +888,7 @@ Deno.serve(async (req) => {
               organization_id,
               service: conv.service,
               organization_address: conv.organization_address,
-              conversation_address: conv.conversation_address,
+              conversation_address: conv.address,
               agent_id: agent.id,
               content: {
                 version: "1" as const,
@@ -902,7 +900,7 @@ Deno.serve(async (req) => {
               organization_id,
               service: conv.service,
               organization_address: conv.organization_address,
-              conversation_address: conv.conversation_address,
+              conversation_address: conv.address,
               agent_id: agent.id,
               content: {
                 version: "1" as const,
@@ -929,7 +927,7 @@ Deno.serve(async (req) => {
           organization_id,
           service: conv.service,
           organization_address: conv.organization_address,
-          conversation_address: conv.conversation_address,
+          conversation_address: conv.address,
           // Agent errors are record-only: OpenBSP is a communication layer,
           // and internal rows never dispatch — errors are never spoken to
           // the end user.
@@ -959,7 +957,7 @@ Deno.serve(async (req) => {
         organization_id: conv.organization_id,
         conversation_id: conv.id,
         organization_address: conv.organization_address,
-        conversation_address: conv.conversation_address,
+        conversation_address: conv.address,
         // Disambiguate by milliseconds index to ensure the insertion order.
         timestamp: new Date(Date.now() + index).toISOString(),
       }));

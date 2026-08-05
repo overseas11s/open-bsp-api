@@ -2,7 +2,7 @@
 // upserts) so Slack's up-to-3 retries need no dedup store.
 //
 // Mapping rules (see slack-management/index.ts header for the address model):
-//   - conversation_address = channel id (D…/G…/C…), anchored to the team.
+//   - conversation address = channel id (D…/G…/C…), anchored to the team.
 //   - sender_address = the Slack user id (a contact reference); agent_id set
 //     when the sender is a linked member. Mirrored rows are armed like any
 //     other inbound message ({pending, sent}); what keeps the AI out of a
@@ -242,7 +242,7 @@ async function ensureConversation(
     .select("id, type")
     .eq("organization_id", ctx.organization_id)
     .eq("organization_address", ctx.team)
-    .eq("conversation_address", channel)
+    .eq("address", channel)
     .eq("service", "slack")
     .maybeSingle()
     .throwOnError();
@@ -278,7 +278,7 @@ async function ensureConversation(
       organization_id: ctx.organization_id,
       service: "slack" as const,
       organization_address: ctx.team,
-      conversation_address: channel,
+      address: channel,
       type: resolved,
       // Always written, including false: absent means not shared, and every
       // Slack conversation hangs off the ownerless anchor, so leaving it out
@@ -807,7 +807,7 @@ async function onMemberLeft(
     .select("id")
     .eq("organization_id", ctx.organization_id)
     .eq("organization_address", ctx.team)
-    .eq("conversation_address", channel)
+    .eq("address", channel)
     .eq("service", "slack")
     .maybeSingle()
     .throwOnError();
@@ -844,7 +844,7 @@ async function onChannelRename(
     .eq("organization_id", ctx.organization_id)
     .eq("service", "slack")
     .eq("organization_address", ctx.team)
-    .eq("conversation_address", channel.id)
+    .eq("address", channel.id)
     .throwOnError();
 }
 
@@ -865,7 +865,7 @@ async function onChannelArchive(
     .eq("organization_id", ctx.organization_id)
     .eq("service", "slack")
     .eq("organization_address", ctx.team)
-    .eq("conversation_address", channel)
+    .eq("address", channel)
     .throwOnError();
 }
 

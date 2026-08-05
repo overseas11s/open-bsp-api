@@ -203,7 +203,7 @@ insert into public.contacts_addresses (organization_id, service, address, extra,
 ;
 
 -- Conversations & Messages (for Mountain Peaks)
-insert into public.conversations (id, organization_id, organization_address, conversation_address, service, name) values
+insert into public.conversations (id, organization_id, organization_address, address, service, name) values
   ('e5f6a7b8-c9d0-1e2f-3a4b-5c6d7e8f9a0b', '3a182d8d-d6d8-44bd-b021-029915476b8c', '318232498042593', '541133525394', 'whatsapp', 'Map trade'),
   ('f6a7b8c9-d0e1-2f3a-4b5c-6d7e8f9a0b1c', '3a182d8d-d6d8-44bd-b021-029915476b8c', '318232498042593', '541133525395', 'whatsapp', 'Emerald exchange')
 ;

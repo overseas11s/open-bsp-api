@@ -43,7 +43,7 @@ create function public.preserve_conversation_identity() returns trigger
 language plpgsql
 as $$
 begin
-  new.conversation_address := old.conversation_address;
+  new.address := old.address;
 
   if current_role not in ('service_role', 'postgres', 'supabase_admin') then
     new.type := old.type;
@@ -205,9 +205,9 @@ begin
 
   -- Internal rows (tool traces, agent errors) are record-only and are born
   -- unarmed by their writer: agent-client — the one client that writes them —
-  -- inserts them with status {}. There is no strip here; pending is the
-  -- declared arm bit, and not carrying it is also how history-synced rows
-  -- pass through without waking any automation.
+  -- inserts them with status {}. pending is the declared arm bit, and not
+  -- carrying it is also how history-synced rows pass through without waking
+  -- any automation.
 
   -- If conversation_id is already provided, proceed as is
   if new.conversation_id is not null then
@@ -231,7 +231,7 @@ begin
     where organization_id = new.organization_id
       and service = new.service
       and organization_address = new.organization_address
-      and conversation_address = new.conversation_address;
+      and address = new.conversation_address;
   end if;
 
   -- Create conversation if it doesn't exist.
@@ -239,7 +239,7 @@ begin
     insert into public.conversations (
       organization_id,
       organization_address,
-      conversation_address,
+      address,
       service
     ) values (
       new.organization_id,
@@ -344,14 +344,14 @@ as $$
 begin
   -- Only if we became unlinked (contact_id IS NULL)
   if new.contact_id is null and old.contact_id is not null then
-    -- If no conversations, delete the address. conversation_address equals
-    -- the contact's address exactly on direct chats — the only shape that
+    -- If no conversations, delete the address. The conversation's address
+    -- equals the contact's exactly on direct chats — the only shape that
     -- links a contact in the first place.
     if not exists (
       select 1 from public.conversations c
       where c.organization_id = new.organization_id
         and c.service = new.service
-        and c.conversation_address = new.address
+        and c.address = new.address
     ) then
       delete from public.contacts_addresses
       where organization_id = new.organization_id
@@ -412,7 +412,7 @@ begin
   where a.organization_id = new.organization_id
     and case
       when new.type in ('direct', 'multiple')
-      then a.id::text = any (string_to_array(new.conversation_address, ':'))
+      then a.id::text = any (string_to_array(new.address, ':'))
       else a.user_id = auth.uid()
     end
   on conflict do nothing;
@@ -461,7 +461,7 @@ begin
       and a.user_id = auth.uid();
 
     _declared := array_remove(
-      coalesce(string_to_array(new.conversation_address, ':'), '{}'), ''
+      coalesce(string_to_array(new.address, ':'), '{}'), ''
     );
 
     if _caller is not null then
@@ -493,7 +493,7 @@ begin
       and a.id::text = any (_declared);
 
     if _roster is not null then
-      new.conversation_address := array_to_string(_roster, ':');
+      new.address := array_to_string(_roster, ':');
 
       -- Size decides the shape, so the two can never disagree.
       if array_length(_roster, 1) > 2 then
@@ -510,7 +510,7 @@ begin
   -- index and make the DM between B and C impossible forever, while neither
   -- could see or delete the row holding it.
   if new.service = 'local' and new.type in ('group', 'channel') then
-    new.conversation_address := new.id::text;
+    new.address := new.id::text;
   end if;
 
   -- A conversation minted without a stated shape is 1:1 — that is what an
@@ -526,8 +526,8 @@ begin
   end if;
 
   -- Conversations with external services must have a peer.
-  if new.service <> 'local' and new.conversation_address is null then
-    raise exception 'Conversations with external services require a conversation_address';
+  if new.service <> 'local' and new.address is null then
+    raise exception 'Conversations with external services require an address';
   end if;
 
   -- A `local` group or channel is identified by itself, not by who is in it,
@@ -536,12 +536,12 @@ begin
   -- Keeping the column NOT NULL is what lets the identity index be a plain
   -- unique constraint rather than one whose behaviour depends on NULL
   -- semantics.
-  if new.conversation_address is null then
-    new.conversation_address := new.id::text;
+  if new.address is null then
+    new.address := new.id::text;
   end if;
 
   -- No contact bootstrap: writers manage contacts_addresses themselves
-  -- (conversation_address is a soft reference by design).
+  -- (the address is a soft reference by design).
   return new;
 end;
 $$;

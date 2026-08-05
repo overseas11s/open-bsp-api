@@ -331,16 +331,15 @@ async function handle(req: Request): Promise<Response> {
     await client
       .from("conversations")
       .upsert(
-        [...containers].map(([conversation_address, type]) => ({
+        [...containers].map(([address, type]) => ({
           organization_id,
           service,
           organization_address,
-          conversation_address,
+          address,
           type,
         })),
         {
-          onConflict:
-            "organization_id,service,organization_address,conversation_address",
+          onConflict: "organization_id,service,organization_address,address",
           ignoreDuplicates: true,
         },
       )
@@ -384,7 +383,7 @@ async function handle(req: Request): Promise<Response> {
       .update({ name: group.name })
       .eq("organization_id", organization_id)
       .eq("service", service)
-      .eq("conversation_address", group.address)
+      .eq("address", group.address)
       .throwOnError();
   }
 

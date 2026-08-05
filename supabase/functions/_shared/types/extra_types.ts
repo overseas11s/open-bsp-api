@@ -82,7 +82,7 @@ export type ConversationExtra = {
   /** UI preferences; moving to conversations_agents.extra, where they are per-member. */
   archived?: string;
   pinned?: string;
-  // Slack (service = 'slack'; conversation_address = channel id)
+  // Slack (service = 'slack'; address = channel id)
   /**
    * Whether our bot is a member of this channel. The whole shared-inbox
    * decision for Slack: the workspace anchor is ownerless, so it is the bot's
