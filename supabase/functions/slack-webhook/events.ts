@@ -301,6 +301,7 @@ async function ensureConversation(
       .from("conversations_agents")
       .upsert({
         organization_id: ctx.organization_id,
+        service: "slack",
         organization_address: linked.address,
         conversation_id: created.id,
         agent_id: linked.agent_id,
@@ -780,6 +781,7 @@ async function onMemberJoined(
     .from("conversations_agents")
     .upsert({
       organization_id: ctx.organization_id,
+      service: "slack",
       organization_address: linked.address,
       conversation_id,
       agent_id: linked.agent_id,

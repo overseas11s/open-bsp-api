@@ -80,6 +80,7 @@ export async function syncConnection(
         .upsert(
           {
             organization_id,
+            service: "slack",
             organization_address: `${team_id}:${slack_user_id}`,
             conversation_id,
             agent_id,

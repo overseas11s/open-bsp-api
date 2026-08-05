@@ -23,8 +23,10 @@ create table public.conversations_agents (
   -- Always the conversation's own — a Slack membership stems from a Slack
   -- identity — so it is redundant in principle and required in practice:
   -- organizations_addresses is keyed on it, and the reference below cannot pin
-  -- the account without it. Never written by a client: the a_set_service
-  -- trigger derives it, so it cannot disagree with the conversation.
+  -- the account without it. Writer-stated, like every other column: a wrong
+  -- value fails the account FK, because the services that populate this table
+  -- give their addresses disjoint formats (`local` addresses are org uuids,
+  -- Slack's are `T…:U…`), so no address string exists under more than one.
   service public.service not null,
   organization_address text not null,
   conversation_id uuid not null,
@@ -92,14 +94,6 @@ using btree (organization_id);
 create index conversations_agents_organization_address_idx
 on public.conversations_agents
 using btree (organization_id, service, organization_address);
-
--- `a_` so it sorts first: the column is NOT NULL with no default, and every
--- other trigger here runs on a row this one has already completed.
-create trigger a_set_service
-before insert or update
-on public.conversations_agents
-for each row
-execute function public.set_conversation_agent_service();
 
 create trigger set_extra
 before update
