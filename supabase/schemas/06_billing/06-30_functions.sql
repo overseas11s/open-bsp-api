@@ -78,14 +78,19 @@ begin
 
   -- Balance products: cap is a floor (minimum allowed balance)
   -- e.g. cap=0 means no debt, cap=-5 allows up to $5 debt
+  -- SQLSTATE PT402: PostgREST maps PTnnn to HTTP status nnn, so every
+  -- PostgREST-fronted surface (UI, API keys, RPC callers) answers 402
+  -- Payment Required instead of a generic 400.
   if _kind = 'balance' then
     if _current - _amount < _cap then
-      raise exception 'Insufficient balance for %', _product_id;
+      raise exception 'Insufficient balance for %', _product_id
+        using errcode = 'PT402';
     end if;
   else
     -- Counter/gauge: cap is a ceiling
     if _current + _amount > _cap then
-      raise exception 'Usage limit reached for %', _product_id;
+      raise exception 'Usage limit reached for %', _product_id
+        using errcode = 'PT402';
     end if;
   end if;
 

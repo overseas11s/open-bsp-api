@@ -954,10 +954,6 @@ Deno.serve(async (req) => {
 
       const output_messages = response.messages.map((message, index) => ({
         ...message,
-        // Record-only rows are born unarmed: the writer declares it, rather
-        // than leaning on the before-insert strip (which stays, as the
-        // invariant for writers that are not this one). Same stored value
-        // either way: {}.
         ...(isInternal(message) && { status: {} }),
         // Make sure the messages have the correct addressing
         organization_id: conv.organization_id,
