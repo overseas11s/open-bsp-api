@@ -24,11 +24,15 @@ begin
 end;
 $$;
 
--- A conversation's identity is its address, so the address never changes.
--- Nothing legitimate needs it to: an ingestor upserts on the identity index,
--- and `local` mints the address at creation. Anything that could move it could
--- also point a room it owns at two colleagues' canonical roster, and make the
--- DM between them impossible — the identity index would already be taken.
+-- A conversation's identity is its addressing, so none of it ever changes:
+-- not the peer address, not the account (organization_address, service) the
+-- conversation hangs off. Nothing legitimate needs it to: an ingestor upserts
+-- on the identity index, and `local` mints the address at creation. Anything
+-- that could move the address could also point a room it owns at two
+-- colleagues' canonical roster, and make the DM between them impossible — the
+-- identity index would already be taken. Freezing the account columns is also
+-- what makes messages' insert-time addressing validation a permanent truth:
+-- the parent can never drift out from under its rows.
 --
 -- `type` is immutable to API roles for a sharper reason: retyping a private
 -- `multiple` as `channel` publishes everyone else's messages to the whole
@@ -39,11 +43,14 @@ $$;
 -- RLS cannot express either: an UPDATE policy sees the old row in USING and
 -- the new row in WITH CHECK, never both, so "this column may not change" has
 -- to be a trigger. Same reason preserve_message_addressing exists.
-create function public.preserve_conversation_identity() returns trigger
+create function public.preserve_conversation_addressing() returns trigger
 language plpgsql
 as $$
 begin
+  new.organization_id := old.organization_id;
   new.address := old.address;
+  new.organization_address := old.organization_address;
+  new.service := old.service;
 
   if current_role not in ('service_role', 'postgres', 'supabase_admin') then
     new.type := old.type;
@@ -193,6 +200,8 @@ language plpgsql
 security definer
 set search_path = ''
 as $$
+declare
+  _conv record;
 begin
   -- The addressing, in two columns:
   --
@@ -209,8 +218,52 @@ begin
   -- carrying it is also how history-synced rows pass through without waking
   -- any automation.
 
-  -- If conversation_id is already provided, proceed as is
+  -- If conversation_id is stated, the conversation is the authority on the
+  -- denormalized addressing: fill what the writer omitted, refuse what they
+  -- misstated. These columns are load-bearing at dispatch time — the peer
+  -- address is the recipient, organization_address picks the account and its
+  -- token, service picks the dispatcher — so drift here is a message to the
+  -- wrong place. Together with the update-time freezes (both preserve_*
+  -- triggers) this gives the composite-FK guarantee for one PK lookup,
+  -- without widening the messages indexes to a four-column text key.
   if new.conversation_id is not null then
+    select c.organization_id, c.service, c.organization_address, c.address
+    into _conv
+    from public.conversations c
+    where c.id = new.conversation_id;
+
+    if not found then
+      raise exception 'Conversation % does not exist', new.conversation_id;
+    end if;
+
+    if new.organization_id is null then
+      new.organization_id := _conv.organization_id;
+    elsif new.organization_id <> _conv.organization_id then
+      raise exception 'organization_id % disagrees with the conversation''s %',
+        new.organization_id, _conv.organization_id;
+    end if;
+
+    if new.service is null then
+      new.service := _conv.service;
+    elsif new.service <> _conv.service then
+      raise exception 'service % disagrees with the conversation''s %',
+        new.service, _conv.service;
+    end if;
+
+    if new.organization_address is null then
+      new.organization_address := _conv.organization_address;
+    elsif new.organization_address <> _conv.organization_address then
+      raise exception 'organization_address % disagrees with the conversation''s %',
+        new.organization_address, _conv.organization_address;
+    end if;
+
+    if new.conversation_address is null then
+      new.conversation_address := _conv.address;
+    elsif new.conversation_address <> _conv.address then
+      raise exception 'conversation_address % disagrees with the conversation''s %',
+        new.conversation_address, _conv.address;
+    end if;
+
     return new;
   end if;
 
@@ -254,18 +307,24 @@ begin
 end;
 $$;
 
--- BEFORE UPDATE: addressing is fill-once. conversation_address is set at
--- insert and never changes; sender_address may be FILLED (null → the actual
--- author) but never flipped — the Slack echo of a send from OpenBSP updates
--- the dispatched row (sender null) with the member who sent it, while an
--- Instagram self-message echo landing on an already-attributed row cannot
--- rewrite it. Updates otherwise only merge content/status.
+-- BEFORE UPDATE: a message's addressing is set at insert — where
+-- before_insert_on_messages validates it against the conversation — and never
+-- changes: not the conversation reference, not the denormalized account and
+-- peer columns it was validated with. sender_address may be FILLED (null →
+-- the actual author) but never flipped — the Slack echo of a send from
+-- OpenBSP updates the dispatched row (sender null) with the member who sent
+-- it, while an Instagram self-message echo landing on an already-attributed
+-- row cannot rewrite it. Updates otherwise only merge content/status.
 create function public.preserve_message_addressing() returns trigger
 language plpgsql
 as $$
 begin
   new.sender_address := coalesce(old.sender_address, new.sender_address);
+  new.organization_id := old.organization_id;
+  new.conversation_id := old.conversation_id;
   new.conversation_address := old.conversation_address;
+  new.organization_address := old.organization_address;
+  new.service := old.service;
 
   return new;
 end;

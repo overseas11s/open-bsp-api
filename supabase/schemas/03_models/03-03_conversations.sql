@@ -150,11 +150,11 @@ on public.conversations
 for each row
 execute function public.notify_webhook();
 
-create trigger preserve_identity
+create trigger preserve_addressing
 before update
 on public.conversations
 for each row
-execute function public.preserve_conversation_identity();
+execute function public.preserve_conversation_addressing();
 
 create trigger set_extra
 before update

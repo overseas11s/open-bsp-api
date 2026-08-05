@@ -218,9 +218,8 @@ on public.messages
 for each row
 execute function public.notify_webhook();
 
--- Alphabetical order matters: `preserve_addressing` must run before the
--- `set_content`/`set_status` merges so the merge never sees a pending key on
--- an internal row.
+-- Addressing is set (and validated against the conversation) at insert and
+-- frozen here; updates only fill sender_address once and merge content/status.
 create trigger preserve_addressing
 before update
 on public.messages

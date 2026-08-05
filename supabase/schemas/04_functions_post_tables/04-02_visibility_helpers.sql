@@ -105,7 +105,7 @@ $$;
 -- 05-03 grants UPDATE on conversations to no API role except on `local`, so
 -- nobody can claim the bot is in a channel it is not in; and `type` is
 -- restored from the old row on every API-role update
--- (preserve_conversation_identity), so a participant cannot retype a private
+-- (preserve_conversation_addressing), so a participant cannot retype a private
 -- room as a channel and publish it to the organization.
 create function public.get_restricted_conversations()
 returns setof uuid
