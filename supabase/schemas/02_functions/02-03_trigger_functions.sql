@@ -597,6 +597,47 @@ begin
 end;
 $$;
 
+-- The invitee is the one row shape in the schema that reads a table it has no
+-- access to: 05-13 hands them their own pending invitations and nothing else,
+-- while organizations (05-00) and agents (05-04) are member-only — they are
+-- not a member yet, that being the point. So the banner can name an email and
+-- a role, and cannot say WHICH organization or WHO asked.
+--
+-- These three columns answer that without opening either table. They are a
+-- snapshot of what the offer says, and the writer has no say in them: any
+-- stated value is discarded and replaced with the authority's. Insert AND
+-- update, because the invitee has no way to check the text — a writer-stated
+-- name would be a phishing field ("join Acme Payroll") rather than a
+-- denormal, and re-deriving on every write is what makes restating one
+-- pointless. It also carries a rename through to offers still open.
+--
+-- SECURITY DEFINER for the email: auth.users is granted to no API role.
+create function public.before_insert_or_update_on_invitations() returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  select o.name into new.organization_name
+  from public.organizations o
+  where o.id = new.organization_id;
+
+  -- Scoped to the invitation's own organization: invitations_invited_by_fkey
+  -- points at agents(id) alone, so nothing stops an owner from naming an
+  -- agent in someone else's tenant, and copying that name here would be the
+  -- one place it becomes readable. A mismatch leaves both columns null —
+  -- `select into` assigns null when no row is found.
+  select a.name, u.email
+  into new.invited_by_name, new.invited_by_email
+  from public.agents a
+  left join auth.users u on u.id = a.user_id
+  where a.id = new.invited_by
+    and a.organization_id = new.organization_id;
+
+  return new;
+end;
+$$;
+
 create function public.notify_webhook() returns trigger
 language plpgsql
 security definer

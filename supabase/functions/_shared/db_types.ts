@@ -872,7 +872,10 @@ export type Database = {
           email: string
           id: string
           invited_by: string | null
+          invited_by_email: string | null
+          invited_by_name: string | null
           organization_id: string
+          organization_name: string | null
           role: Database["public"]["Enums"]["role"]
           status: string
           updated_at: string
@@ -882,7 +885,10 @@ export type Database = {
           email: string
           id?: string
           invited_by?: string | null
+          invited_by_email?: string | null
+          invited_by_name?: string | null
           organization_id: string
+          organization_name?: string | null
           role?: Database["public"]["Enums"]["role"]
           status?: string
           updated_at?: string
@@ -892,7 +898,10 @@ export type Database = {
           email?: string
           id?: string
           invited_by?: string | null
+          invited_by_email?: string | null
+          invited_by_name?: string | null
           organization_id?: string
+          organization_name?: string | null
           role?: Database["public"]["Enums"]["role"]
           status?: string
           updated_at?: string

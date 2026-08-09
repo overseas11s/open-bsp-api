@@ -22,6 +22,16 @@ create table public.invitations (
   -- value to an enum a policy depends on.
   status text default 'pending' not null,
   invited_by uuid,
+  -- What the offer says, for the one reader who cannot look any of it up: the
+  -- invitee sees this table and nothing else. Nullable because the writer
+  -- omits them — before_insert_or_update_on_invitations fills all three, and
+  -- leaves the last two null when there is nobody to copy (invited_by null,
+  -- or an agent from another organization). Note the email is the inviter's,
+  -- and so is visible to every member through the policy below, which is the
+  -- only place an agent's address is readable at all.
+  organization_name text,
+  invited_by_name text,
+  invited_by_email text,
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null
 );
@@ -65,6 +75,12 @@ create index invitations_email_idx
 on public.invitations
 using btree (lower(email))
 where status = 'pending';
+
+create trigger handle_invitation_snapshot
+before insert or update
+on public.invitations
+for each row
+execute function public.before_insert_or_update_on_invitations();
 
 create trigger set_updated_at
 before update
