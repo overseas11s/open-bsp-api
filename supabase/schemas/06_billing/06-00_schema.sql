@@ -6,7 +6,6 @@ grant insert, update on all tables in schema billing to service_role;
 alter default privileges in schema billing grant select on tables to anon, authenticated, service_role;
 alter default privileges in schema billing grant insert, update on tables to service_role;
 
--- Revoke default execute on future functions; only triggers call them
-alter default privileges in schema billing revoke execute on functions from public;
--- But allow service_role to call RPC functions (check_limit, etc.)
-grant execute on all functions in schema billing to service_role;
+-- `on all functions in schema` expands to the functions that exist at the
+-- moment it runs, and none do yet. Function privileges are therefore set in
+-- 06-40_grants.sql, after 06-30 has created them.

@@ -264,8 +264,16 @@ end;
 $$;
 
 -- Trigger: initialize subscription on organization insert.
--- Assigns the lowest-level active tier and default plan (if any).
+-- Assigns the lowest-level active tier, then the default plan if one exists:
+-- tier from the plan's min_tier, period start, and a ledger grant for each
+-- balance product the plan includes.
 -- No tiers = no billing.
+--
+-- Changing plan later (upgrades, purchases) is an app-layer concern — an edge
+-- function updating billing.subscriptions and billing.ledger as service_role —
+-- deliberately not a database function: the billing schema is exposed to
+-- PostgREST, where any function is one default EXECUTE grant away from being a
+-- signed-in user's RPC (see 06-40_grants.sql).
 create function billing.initialize_subscription() returns trigger
 language plpgsql
 security definer
@@ -273,7 +281,8 @@ set search_path to ''
 as $$
 declare
   _tier_id text;
-  _plan_id text;
+  _plan billing.plans%rowtype;
+  _pp record;
 begin
   select t.id into _tier_id
   from billing.tiers t
@@ -290,41 +299,15 @@ begin
   values (new.id, _tier_id);
 
   -- Assign default plan if one exists
-  select p.id into _plan_id
+  select * into _plan
   from billing.plans p
   where p.is_default = true
     and p.active = true
   limit 1;
 
-  if _plan_id is not null then
-    perform billing.change_plan(new.id, _plan_id);
+  if not found then
+    return new;
   end if;
-
-  return new;
-end;
-$$;
-
--- Change plan for an organization.
--- Updates tier (from plan's min_tier) and plan, sets period start, grants balance products.
--- Called by the app layer (service_role).
-create function billing.change_plan(
-  _organization_id uuid,
-  _plan_id text
-) returns void
-language plpgsql
-security definer
-set search_path to ''
-as $$
-declare
-  _plan billing.plans%rowtype;
-  _tier_id text;
-  _pp record;
-begin
-  -- Get the plan
-  select * into strict _plan
-  from billing.plans p
-  where p.id = _plan_id
-    and p.active = true;
 
   -- Find the matching tier for this plan's min_tier level
   select t.id into _tier_id
@@ -335,29 +318,30 @@ begin
   limit 1;
 
   if _tier_id is null then
-    raise exception 'No active tier found for plan %', _plan_id;
+    raise exception 'No active tier found for plan %', _plan.id;
   end if;
 
-  -- Update subscription
   update billing.subscriptions
   set tier_id = _tier_id,
-      plan_id = _plan_id,
+      plan_id = _plan.id,
       current_period_start = now()
-  where organization_id = _organization_id;
+  where organization_id = new.id;
 
   -- Grant balance products included in the plan
   for _pp in
     select pp.product_id, pp.included
     from billing.plans_products pp
     join billing.products p on p.id = pp.product_id
-    where pp.plan_id = _plan_id
+    where pp.plan_id = _plan.id
       and p.kind = 'balance'
       and pp.included is not null
       and pp.included > 0
   loop
     insert into billing.ledger (organization_id, product_id, type, quantity)
-    values (_organization_id, _pp.product_id, 'grant', _pp.included);
+    values (new.id, _pp.product_id, 'grant', _pp.included);
   end loop;
+
+  return new;
 end;
 $$;
 

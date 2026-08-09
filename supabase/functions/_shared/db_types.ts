@@ -549,10 +549,6 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      change_plan: {
-        Args: { _organization_id: string; _plan_id: string }
-        Returns: undefined
-      }
       check_limit: {
         Args: {
           _amount?: number
@@ -1277,10 +1273,6 @@ export type Database = {
       merge_update_jsonb: {
         Args: { object: Json; path: string[]; target: Json }
         Returns: Json
-      }
-      org_update_by_admin_rules: {
-        Args: { p_id: string; p_name: string }
-        Returns: boolean
       }
       reject_invitation: { Args: { invitation_id: string }; Returns: undefined }
     }
