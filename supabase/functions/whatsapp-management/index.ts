@@ -1,11 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { Context, Hono } from "@hono/hono";
+import { Hono } from "@hono/hono";
 import { cors } from "jsr:@hono/hono/cors";
 import { HTTPException } from "jsr:@hono/hono/http-exception";
 import * as log from "../_shared/logger.ts";
 import { Json } from "../_shared/db_types.ts";
 import {
-  ApiKeyRow,
   createApiClient,
   createClient,
   createUnsecureClient,
@@ -23,7 +22,12 @@ import {
   performEmbeddedSignup,
   SignupPayload,
 } from "./embedded_signup.ts";
-import { type User } from "@supabase/supabase-js";
+import {
+  type ManagementEnv,
+  ownsAddress,
+  requireRoles,
+  requireScope,
+} from "../_shared/management_auth.ts";
 
 type TemplatePayload = {
   organization_id: string;
@@ -31,14 +35,7 @@ type TemplatePayload = {
   template?: TemplateData;
 };
 
-type AppEnv = {
-  Variables: {
-    supabase: ReturnType<typeof createClient>;
-    user: User;
-    token: string;
-    apiKey: ApiKeyRow;
-  };
-};
+type AppEnv = ManagementEnv;
 
 const app = new Hono<AppEnv>();
 
@@ -128,74 +125,6 @@ app.use("*", async (c, next) => {
 
   return;
 });
-
-// Require roles middleware factory
-function requireRoles(
-  roles: Array<"member" | "admin" | "owner">,
-) {
-  return async (c: Context<AppEnv>, next: () => Promise<void>) => {
-    const client = c.get("supabase");
-
-    // We must clone the request if we want to read the body in middleware
-    // because c.req.json() consumes the stream.
-    const body = await c.req.raw.clone().json();
-    const organization_id = body.organization_id;
-
-    const user = c.get("user");
-
-    if (user) {
-      const { error: agentError, data: agent } = await client
-        .from("agents")
-        .select("organization_id")
-        .eq("user_id", user.id)
-        .eq("organization_id", organization_id)
-        .in("role", roles)
-        .is("deleted_at", null)
-        .maybeSingle();
-
-      if (agentError || !agent) {
-        log.error(
-          `User ${user.id} not authorized for organization ${organization_id}. Allowed roles: ${
-            roles.join(", ")
-          }`,
-          agentError,
-        );
-
-        throw new HTTPException(403, {
-          message:
-            `User ${user.id} not authorized for organization ${organization_id}. Allowed roles: ${
-              roles.join(", ")
-            }`,
-          cause: agentError,
-        });
-      }
-
-      await next();
-      return;
-    }
-
-    const apiKey = c.get("apiKey")!;
-
-    if (
-      organization_id !== apiKey.organization_id || !roles.includes(apiKey.role)
-    ) {
-      log.error(
-        `API key not authorized for organization ${organization_id}. Allowed roles: ${
-          roles.join(", ")
-        }`,
-      );
-
-      throw new HTTPException(403, {
-        message:
-          `API key not authorized for organization ${organization_id}. Allowed roles: ${
-            roles.join(", ")
-          }`,
-      });
-    }
-
-    await next();
-  };
-}
 
 // Templates routes
 
@@ -293,12 +222,23 @@ app.delete(
 
 // Embedded signup routes
 
+// agent_id makes the connection USER-SCOPED — the number becomes that
+// member's personal channel instead of the org's shared inbox, and any
+// member may connect their own (see requireScope). Absent connects the
+// org's, admin+.
 app.post(
   "/whatsapp-management/signup",
-  requireRoles(["admin", "owner"]),
+  requireRoles(["member", "admin", "owner"]),
   async (c) => {
     const payload = await c.req.json<SignupPayload>();
     log.info("Embedded signup payload", payload);
+
+    await requireScope(
+      c,
+      payload.organization_id,
+      payload.agent_id,
+      requireRoles(["admin", "owner"]),
+    );
 
     // Once the user has been authorized, use the unsecure client to
     // avoid row-level security.
@@ -340,13 +280,25 @@ app.post(
 
 app.delete(
   "/whatsapp-management/signup",
-  requireRoles(["admin", "owner"]),
+  // A member disconnects their own user-scoped number; admin+ any.
+  requireRoles(["member", "admin", "owner"]),
   async (c) => {
     const payload = await c.req.json<{
       phone_number_id: string;
       organization_id: string;
     }>();
     log.info("Embedded signup delete payload", payload);
+
+    if (
+      !await ownsAddress(
+        c,
+        payload.organization_id,
+        "whatsapp",
+        payload.phone_number_id,
+      )
+    ) {
+      await requireRoles(["admin", "owner"])(c, () => Promise.resolve());
+    }
 
     // Once the user has been authorized, use the unsecure client to
     // avoid row-level security.

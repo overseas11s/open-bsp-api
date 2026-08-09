@@ -281,6 +281,12 @@ export type InstagramLoginPayload = {
   redirect_uri: string;
   organization_id: string;
   application_id?: string;
+  /**
+   * Optional: connects the account as this member's PERSONAL channel — the
+   * address row carries it, scoping its conversations to that member alone.
+   * Absent is the org's shared inbox.
+   */
+  agent_id?: string;
 };
 
 /**
@@ -359,6 +365,7 @@ export async function performInstagramLogin(
       service: "instagram",
       address: ig_user_id,
       organization_id: payload.organization_id,
+      agent_id: payload.agent_id ?? null,
       status: "connected",
       extra,
     })

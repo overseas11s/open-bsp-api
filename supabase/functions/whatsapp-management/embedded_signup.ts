@@ -189,6 +189,12 @@ async function postInitDataSync(
 }
 
 export type SignupPayload = {
+  /**
+   * Optional: connects the number as this member's PERSONAL channel — the
+   * address row carries it, scoping its conversations to that member alone.
+   * Absent is the org's shared inbox.
+   */
+  agent_id?: string;
   code: string;
   application_id?: string;
   organization_id: string;
@@ -306,6 +312,7 @@ export async function performEmbeddedSignup(
       service: "whatsapp",
       address: payload.phone_number_id,
       organization_id: payload.organization_id,
+      agent_id: payload.agent_id ?? null,
       status: "connected",
       extra: {
         waba_id: payload.waba_id,

@@ -3,13 +3,18 @@
 // UI talks to this function, never to the bridge directly; the bridge accepts
 // server-to-server calls only.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { Context, Hono } from "@hono/hono";
+import { Hono } from "@hono/hono";
 import { cors } from "jsr:@hono/hono/cors";
 import { HTTPException } from "jsr:@hono/hono/http-exception";
-import { type User } from "@supabase/supabase-js";
 import * as log from "../_shared/logger.ts";
 import { Json } from "../_shared/db_types.ts";
 import { createClient, createUnsecureClient } from "../_shared/supabase.ts";
+import {
+  type ManagementEnv,
+  requireRoles,
+  requireRolesOrOwnAddress,
+  requireScope,
+} from "../_shared/management_auth.ts";
 
 const BRIDGE_URL = Deno.env.get("WHATSAPP_WEB_URL") ?? "";
 const BRIDGE_TOKEN = Deno.env.get("WHATSAPP_WEB_TOKEN") ?? "";
@@ -18,14 +23,7 @@ const BRIDGE_TOKEN = Deno.env.get("WHATSAPP_WEB_TOKEN") ?? "";
 // with the shared bridge token instead of a user JWT.
 const PUBLIC_SUFFIXES = ["/sessions/events"];
 
-type AppEnv = {
-  Variables: {
-    supabase: ReturnType<typeof createClient>;
-    user: User;
-  };
-};
-
-const app = new Hono<AppEnv>();
+const app = new Hono<ManagementEnv>();
 
 app.use("*", cors());
 
@@ -71,43 +69,6 @@ app.use("*", async (c, next) => {
   await next();
 });
 
-/**
- * Requires the user to have one of the given roles in the organization. The
- * organization_id comes from the JSON body on write methods and from the
- * query string on GET/DELETE.
- */
-function requireRoles(roles: Array<"member" | "admin" | "owner">) {
-  return async (c: Context<AppEnv>, next: () => Promise<void>) => {
-    const organization_id = c.req.method === "GET" || c.req.method === "DELETE"
-      ? c.req.query("organization_id")
-      : (await c.req.raw.clone().json()).organization_id;
-
-    if (!organization_id) {
-      throw new HTTPException(400, { message: "organization_id is required" });
-    }
-
-    const client = c.get("supabase");
-    const user = c.get("user");
-
-    const { error: agentError, data: agent } = await client
-      .from("agents")
-      .select("organization_id")
-      .eq("user_id", user.id)
-      .eq("organization_id", organization_id)
-      .in("extra->>role", roles)
-      .maybeSingle();
-
-    if (agentError || !agent) {
-      throw new HTTPException(403, {
-        message: `Not authorized for organization ${organization_id}`,
-        cause: agentError,
-      });
-    }
-
-    await next();
-  };
-}
-
 async function callBridge(
   method: string,
   path: string,
@@ -142,18 +103,32 @@ async function callBridge(
 
 // Start pairing: the bridge creates a session and returns a QR code string
 // (and/or a phone pairing code) for the UI to render.
+//
+// agent_id decides the scope: absent pairs the ORG'S number (shared inbox,
+// admin+); set pairs a personal one — the address row will carry it, making
+// its conversations visible to that member alone — and any member may pair
+// their own (see requireScope).
 app.post(
   "/whatsapp-web-management/sessions",
-  requireRoles(["owner"]),
+  requireRoles(["member", "admin", "owner"]),
   async (c) => {
-    const { organization_id, phone_number } = await c.req.json<{
+    const { organization_id, phone_number, agent_id } = await c.req.json<{
       organization_id: string;
       phone_number?: string;
+      agent_id?: string;
     }>();
+
+    await requireScope(
+      c,
+      organization_id,
+      agent_id,
+      requireRoles(["admin", "owner"]),
+    );
 
     const result = await callBridge("POST", "/sessions", {
       organization_id,
       phone_number,
+      agent_id,
     });
 
     return Response.json(result);
@@ -165,7 +140,10 @@ app.post(
 // (status: pending | paired | error).
 app.get(
   "/whatsapp-web-management/sessions/pending/:id",
-  requireRoles(["owner"]),
+  // Member+: whoever legitimately started a pairing (a member, for their own
+  // personal session) has to be able to poll it; the id is unguessable and
+  // the payload is just QR/status.
+  requireRoles(["member", "admin", "owner"]),
   async (c) => {
     const id = c.req.param("id") ?? "";
     const result = await callBridge(
@@ -177,10 +155,11 @@ app.get(
   },
 );
 
-// Pairing/connection status for channel health.
+// Pairing/connection status for channel health. Own-address carve-out: a
+// member reads their own personal session's health.
 app.get(
   "/whatsapp-web-management/sessions/:address",
-  requireRoles(["member", "admin", "owner"]),
+  requireRolesOrOwnAddress("whatsapp-web", requireRoles(["admin", "owner"])),
   async (c) => {
     const address = c.req.param("address") ?? "";
     const result = await callBridge(
@@ -196,7 +175,7 @@ app.get(
 // store; the organizations_addresses row is marked disconnected here.
 app.delete(
   "/whatsapp-web-management/sessions/:address",
-  requireRoles(["owner"]),
+  requireRolesOrOwnAddress("whatsapp-web", requireRoles(["admin", "owner"])),
   async (c) => {
     const organization_id = c.req.query("organization_id")!;
     const address = c.req.param("address") ?? "";
@@ -228,14 +207,21 @@ app.post("/whatsapp-web-management/sessions/events", async (c) => {
     throw new HTTPException(401, { message: "Invalid bridge token" });
   }
 
-  const { event, organization_id, address, extra } = await c.req.json<{
-    event: "connected" | "logged_out";
-    organization_id: string;
-    /** The session's own number (canonical bare digits) */
-    address: string;
-    /** e.g. { device_jid } */
-    extra?: Record<string, Json>;
-  }>();
+  const { event, organization_id, address, agent_id, extra } = await c.req
+    .json<{
+      event: "connected" | "logged_out";
+      organization_id: string;
+      /** The session's own number (canonical bare digits) */
+      address: string;
+      /**
+       * Echoed from pairing. Set makes the address USER-SCOPED — its
+       * conversations visible to that member alone; absent is the org's
+       * shared inbox.
+       */
+      agent_id?: string;
+      /** e.g. { device_jid } */
+      extra?: Record<string, Json>;
+    }>();
 
   const client = createUnsecureClient();
 
@@ -246,6 +232,7 @@ app.post("/whatsapp-web-management/sessions/events", async (c) => {
         organization_id,
         service: "whatsapp-web",
         address,
+        agent_id: agent_id ?? null,
         status: "connected",
         // For whatsapp-web the address IS the bare phone number (unlike the
         // Cloud API, where address is an opaque phone_number_id). Mirror it into

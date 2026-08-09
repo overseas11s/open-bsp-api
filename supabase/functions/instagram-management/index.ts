@@ -1,11 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { Context, Hono } from "@hono/hono";
+import { Hono } from "@hono/hono";
 import { cors } from "jsr:@hono/hono/cors";
 import { HTTPException } from "jsr:@hono/hono/http-exception";
 import * as log from "../_shared/logger.ts";
 import { Json } from "../_shared/db_types.ts";
 import {
-  ApiKeyRow,
   createApiClient,
   createClient,
   createUnsecureClient,
@@ -19,7 +18,12 @@ import {
   performInstagramLogin,
   refreshTokens,
 } from "./login.ts";
-import { type User } from "@supabase/supabase-js";
+import {
+  type ManagementEnv,
+  ownsAddress,
+  requireRoles,
+  requireScope,
+} from "../_shared/management_auth.ts";
 
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -37,14 +41,7 @@ const PUBLIC_SUFFIXES = [
   "/data-deletion/status",
 ];
 
-type AppEnv = {
-  Variables: {
-    supabase: ReturnType<typeof createClient>;
-    user: User;
-    token: string;
-    apiKey: ApiKeyRow;
-  };
-};
+type AppEnv = ManagementEnv;
 
 const app = new Hono<AppEnv>();
 
@@ -129,58 +126,6 @@ app.use("*", async (c, next) => {
   await next();
 });
 
-// Require roles middleware factory (identical to whatsapp-management).
-function requireRoles(roles: Array<"member" | "admin" | "owner">) {
-  return async (c: Context<AppEnv>, next: () => Promise<void>) => {
-    const client = c.get("supabase");
-
-    // Clone the request to read the body without consuming the stream.
-    const body = await c.req.raw.clone().json();
-    const organization_id = body.organization_id;
-
-    const user = c.get("user");
-
-    if (user) {
-      const { error: agentError, data: agent } = await client
-        .from("agents")
-        .select("organization_id")
-        .eq("user_id", user.id)
-        .eq("organization_id", organization_id)
-        .in("role", roles)
-        .is("deleted_at", null)
-        .maybeSingle();
-
-      if (agentError || !agent) {
-        throw new HTTPException(403, {
-          message:
-            `User ${user.id} not authorized for organization ${organization_id}. Allowed roles: ${
-              roles.join(", ")
-            }`,
-          cause: agentError,
-        });
-      }
-
-      await next();
-      return;
-    }
-
-    const apiKey = c.get("apiKey")!;
-
-    if (
-      organization_id !== apiKey.organization_id || !roles.includes(apiKey.role)
-    ) {
-      throw new HTTPException(403, {
-        message:
-          `API key not authorized for organization ${organization_id}. Allowed roles: ${
-            roles.join(", ")
-          }`,
-      });
-    }
-
-    await next();
-  };
-}
-
 // Authorize URL helper — centralizes client_id + scopes for the frontend.
 app.get("/instagram-management/authorize-url", (c) => {
   const redirect_uri = c.req.query("redirect_uri");
@@ -198,13 +143,23 @@ app.get("/instagram-management/authorize-url", (c) => {
   });
 });
 
-// Connect an account (in-app flow).
+// Connect an account (in-app flow). agent_id makes the connection
+// USER-SCOPED — the account becomes that member's personal channel instead
+// of the org's shared inbox, and any member may connect their own (see
+// requireScope). Absent connects the org's, admin+.
 app.post(
   "/instagram-management/signup",
-  requireRoles(["admin", "owner"]),
+  requireRoles(["member", "admin", "owner"]),
   async (c) => {
     const payload = await c.req.json<InstagramLoginPayload>();
     log.info("Instagram login payload", payload);
+
+    await requireScope(
+      c,
+      payload.organization_id,
+      payload.agent_id,
+      requireRoles(["admin", "owner"]),
+    );
 
     // Users may not modify organizations_addresses directly; use the unsecure
     // client now that the role check has passed.
@@ -243,15 +198,27 @@ app.post(
   },
 );
 
-// Disconnect an account.
+// Disconnect an account. A member disconnects their own user-scoped one;
+// admin+ any.
 app.delete(
   "/instagram-management/signup",
-  requireRoles(["admin", "owner"]),
+  requireRoles(["member", "admin", "owner"]),
   async (c) => {
     const payload = await c.req.json<
       { organization_id: string; ig_user_id: string }
     >();
     log.info("Instagram disconnect payload", payload);
+
+    if (
+      !await ownsAddress(
+        c,
+        payload.organization_id,
+        "instagram",
+        payload.ig_user_id,
+      )
+    ) {
+      await requireRoles(["admin", "owner"])(c, () => Promise.resolve());
+    }
 
     const client = createUnsecureClient();
 
