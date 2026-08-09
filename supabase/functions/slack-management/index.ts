@@ -110,6 +110,11 @@ app.use("*", async (c, next) => {
 /**
  * Resolves the caller's own (human) agent in the organization. Any role may
  * connect Slack — the connection is theirs, not the org's.
+ *
+ * The general rule across managements: ORG-SCOPED connections (WhatsApp,
+ * Instagram, whatsapp-web) are admin+, status checks included; a USER-SCOPED
+ * connection — the token is the member's own — is managed by its member, and
+ * membership is the whole check.
  */
 async function getOwnAgent(
   c: Context<AppEnv>,

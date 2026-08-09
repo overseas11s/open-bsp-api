@@ -146,7 +146,8 @@ function requireRoles(roles: Array<"member" | "admin" | "owner">) {
         .select("organization_id")
         .eq("user_id", user.id)
         .eq("organization_id", organization_id)
-        .in("extra->>role", roles)
+        .in("role", roles)
+        .is("deleted_at", null)
         .maybeSingle();
 
       if (agentError || !agent) {
@@ -200,7 +201,7 @@ app.get("/instagram-management/authorize-url", (c) => {
 // Connect an account (in-app flow).
 app.post(
   "/instagram-management/signup",
-  requireRoles(["owner"]),
+  requireRoles(["admin", "owner"]),
   async (c) => {
     const payload = await c.req.json<InstagramLoginPayload>();
     log.info("Instagram login payload", payload);
@@ -245,7 +246,7 @@ app.post(
 // Disconnect an account.
 app.delete(
   "/instagram-management/signup",
-  requireRoles(["owner"]),
+  requireRoles(["admin", "owner"]),
   async (c) => {
     const payload = await c.req.json<
       { organization_id: string; ig_user_id: string }

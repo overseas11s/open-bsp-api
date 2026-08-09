@@ -149,7 +149,8 @@ function requireRoles(
         .select("organization_id")
         .eq("user_id", user.id)
         .eq("organization_id", organization_id)
-        .in("extra->>role", roles)
+        .in("role", roles)
+        .is("deleted_at", null)
         .maybeSingle();
 
       if (agentError || !agent) {
@@ -292,50 +293,54 @@ app.delete(
 
 // Embedded signup routes
 
-app.post("/whatsapp-management/signup", requireRoles(["owner"]), async (c) => {
-  const payload = await c.req.json<SignupPayload>();
-  log.info("Embedded signup payload", payload);
+app.post(
+  "/whatsapp-management/signup",
+  requireRoles(["admin", "owner"]),
+  async (c) => {
+    const payload = await c.req.json<SignupPayload>();
+    log.info("Embedded signup payload", payload);
 
-  // Once the user has been authorized, use the unsecure client to
-  // avoid row-level security.
-  // Users are not allowed to modify organizations_addresses table.
-  const unsecureClient = createUnsecureClient();
+    // Once the user has been authorized, use the unsecure client to
+    // avoid row-level security.
+    // Users are not allowed to modify organizations_addresses table.
+    const unsecureClient = createUnsecureClient();
 
-  try {
-    const address = await performEmbeddedSignup(unsecureClient, payload);
+    try {
+      const address = await performEmbeddedSignup(unsecureClient, payload);
 
-    log.info("Signup completed", {
-      organization_id: payload.organization_id,
-      address: address.address,
-    });
+      log.info("Signup completed", {
+        organization_id: payload.organization_id,
+        address: address.address,
+      });
 
-    return c.json(address);
-  } catch (error) {
-    if (error instanceof HTTPException) {
-      log.error(error.message, error);
+      return c.json(address);
+    } catch (error) {
+      if (error instanceof HTTPException) {
+        log.error(error.message, error);
 
-      await unsecureClient
-        .from("logs")
-        .insert({
-          organization_id: payload.organization_id,
-          category: "signup",
-          service: "whatsapp",
-          level: "error",
-          message: error.message,
-          metadata: error.cause as Json,
-        })
-        .throwOnError();
-    } else {
-      log.error("Embedded signup failed", error);
+        await unsecureClient
+          .from("logs")
+          .insert({
+            organization_id: payload.organization_id,
+            category: "signup",
+            service: "whatsapp",
+            level: "error",
+            message: error.message,
+            metadata: error.cause as Json,
+          })
+          .throwOnError();
+      } else {
+        log.error("Embedded signup failed", error);
+      }
+
+      throw error;
     }
-
-    throw error;
-  }
-});
+  },
+);
 
 app.delete(
   "/whatsapp-management/signup",
-  requireRoles(["owner"]),
+  requireRoles(["admin", "owner"]),
   async (c) => {
     const payload = await c.req.json<{
       phone_number_id: string;

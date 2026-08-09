@@ -13,9 +13,10 @@
 -- the owner policy's. Fixed here; see the CHANGELOG.
 --
 -- The whole model, in one place: you see everyone in your organizations, you
--- edit yourself, admins edit anyone, owners do anything, and you can leave.
--- Only owners grant roles. AI agents are not a category RLS knows about —
--- `user_id is null` is just another agent to these policies.
+-- edit yourself, admins edit anyone and run the AI roster, owners do
+-- anything, and you can leave. Only owners grant roles and remove people —
+-- control over PEOPLE is the owner's line, and `user_id is null` is how these
+-- policies draw it: an AI agent is staff, not membership.
 
 alter table public.agents enable row level security;
 
@@ -61,27 +62,37 @@ with check (
   and public.agent_identity_and_role_unchanged(id, user_id, organization_id, role)
 );
 
--- Owners additionally set roles, create AI agents and remove members. Split by
--- action rather than written as `for all` because the identity check below
--- compares against a STORED row: on an insert there is none to compare with,
--- so the same expression cannot serve both.
---
--- `user_id is null` on the insert is what makes invitations the only door for
--- people. An owner may mint AI agents freely; conjuring a row that names a
--- human would hand that person a membership they never accepted. The two
--- paths that legitimately insert a row with a user_id — organization creation
--- and accept_invitation — are SECURITY DEFINER and never see this policy.
-create policy "owners can create their orgs agents"
+-- `user_id is null` here is what makes invitations the only door for people.
+-- An admin may mint AI agents freely; conjuring a row that names a human
+-- would hand that person a membership they never accepted. The two paths that
+-- legitimately insert a row with a user_id — organization creation and
+-- accept_invitation — are SECURITY DEFINER and never see this policy.
+create policy "admins can create their orgs ai agents"
 on public.agents
 for insert
 to authenticated, anon
 with check (
   organization_id in (
-    select public.get_authorized_orgs('owner')
+    select public.get_authorized_orgs('admin')
   )
   and user_id is null
 );
 
+-- The AI half of the delete below, at admin. Removing a PERSON stays with
+-- owners: it is membership control, like roles and invitations.
+create policy "admins can delete their orgs ai agents"
+on public.agents
+for delete
+to authenticated, anon
+using (
+  organization_id in (
+    select public.get_authorized_orgs('admin')
+  )
+  and user_id is null
+);
+
+-- Owners additionally set roles. Identity still cannot move — even an owner
+-- gets no tenant escape or impersonation.
 create policy "owners can update their orgs agents"
 on public.agents
 for update

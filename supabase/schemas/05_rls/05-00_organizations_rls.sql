@@ -18,22 +18,8 @@ using (
   )
 );
 
-create policy "owners can update their orgs"
-on public.organizations
-for update
-to authenticated, anon
-using (
-  id in (
-    select public.get_authorized_orgs('owner')
-  )
-)
-with check (
-  id in (
-    select public.get_authorized_orgs('owner')
-  )
-);
-
-create policy "admins can update their orgs, without changing their name"
+-- The whole row, name included; deletion below is what stays owner-only.
+create policy "admins can update their orgs"
 on public.organizations
 for update
 to authenticated, anon
@@ -46,7 +32,6 @@ with check (
   id in (
     select public.get_authorized_orgs('admin')
   )
-  and public.org_update_by_admin_rules(id, name)
 );
 
 create policy "owners can delete their orgs"
