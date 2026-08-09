@@ -9,14 +9,21 @@ alter table public.conversations_agents enable row level security;
 --                  could insert here at will could read any private DM in the
 --                  workspace by naming its id.
 --
---   PREFERENCES    A row also carries the caller's own state for the
---                  conversation (extra). That job is harmless, and members
---                  own it.
+--   MEMBER STATE   A row also carries the caller's own state for the
+--                  conversation (extra) — read receipts, mute.
 --
--- The write policies exist to let members do the second without doing the
--- first. Each one is either restricted to rows that grant nothing (because
--- the conversation is already visible without them), or restricted to
--- `local`, where participation is a thing members legitimately manage.
+-- One row does both, so a write for the second reaches the first: UPDATE
+-- MOVES rows, and a row that lands on another conversation is a participation
+-- its owner just granted themselves — the grant INSERT refuses, arriving by a
+-- different verb. So all three write commands take the same line, drawn the
+-- way 05-03 draws it on conversations: every write is `local`, where
+-- participation is a thing members legitimately manage, and a mirror service
+-- is read-only because the truth is on someone else's server. Mirror state
+-- included: the row is the sync's, and so is what it carries.
+--
+-- UI preferences (archived, pinned, drafts) are not member state and do not
+-- belong here. A preference has to be settable on any conversation you can
+-- SEE — which is every service, and this table is writable on one.
 --
 -- No recursion: the conversations subqueries below run with the caller's
 -- rights and are scoped by conversations RLS, which decides membership
@@ -42,15 +49,17 @@ using (
   )
 );
 
--- Your own row, on a conversation you can see. This is the preferences case,
--- and it is why the visibility test is the plain one: if you can already read
--- the conversation, a row about you changes nothing about what you can read.
+-- Your own row, on a local conversation you can see: editing `extra`, the
+-- one column here that is nobody else's business. The visibility test is the
+-- plain one — no group/channel split like the two policies below — because
+-- this command adds nobody: whichever way you got the row, changing your own
+-- state on it changes nothing about who is in the room.
 --
--- WITH CHECK re-tests both halves, so the row cannot be re-pointed at a
--- conversation you cannot see. (The participation branch of that test reads
--- this table's pre-statement snapshot, so a row cannot bootstrap its own
--- visibility by moving.)
-create policy "members can update their own membership rows"
+-- WITH CHECK re-tests every half, so the row cannot be re-pointed — not at
+-- another agent, not at a conversation you cannot see, and not off `local`.
+-- (The participation branch of that test reads this table's pre-statement
+-- snapshot, so a row cannot bootstrap its own visibility by moving.)
+create policy "members can update their own local membership rows"
 on public.conversations_agents
 for update
 to authenticated
@@ -59,6 +68,7 @@ using (
   and exists (
     select 1 from public.conversations c
     where c.id = conversation_id
+      and c.service = 'local'::public.service
   )
 )
 with check (
@@ -66,69 +76,61 @@ with check (
   and exists (
     select 1 from public.conversations c
     where c.id = conversation_id
+      and c.service = 'local'::public.service
   )
 );
 
--- Creating a row for yourself is only safe where the row grants nothing: the
--- conversation must be visible WITHOUT participation — a shared inbox, or a
--- personal account you own. That is the account rule minus the restricted
--- set, spelled out rather than delegated, because `exists (select 1 from
--- conversations)` would also pass for conversations you can see only BY
--- participating, which is the case this policy must exclude.
+-- Adding someone to a group, and joining a channel — the two acts the delete
+-- policy below undoes, so this is its mirror image: one policy, the same two
+-- branches.
 --
--- Concretely: a Slack channel the bot is in, yes. A Slack DM between two
--- other members, no — and that stays true if the bot later leaves a channel,
--- since the row you created then stops being enough on its own.
+-- `local` only, like every other write here. A Slack membership is Slack's
+-- fact, written by the sync and the webhook with the service role, and a row
+-- a member wrote for themselves would desync us until the next sync
+-- overwrote it.
 --
--- It also covers self-joining a `local` channel, which is unrestricted by
--- shape. Local groups are handled by the next policy instead.
-create policy "members can create their own membership rows"
-on public.conversations_agents
-for insert
-to authenticated
-with check (
-  agent_id in (select public.get_own_agents())
-  and exists (
-    select 1 from public.conversations c
-    where c.id = conversation_id
-      and c.organization_id in (select public.get_authorized_orgs('member'))
-      and (c.organization_id, c.service, c.organization_address) in (
-        select v.organization_id, v.service, v.address
-        from public.get_visible_addresses() v
-      )
-      and c.id not in (select public.get_restricted_conversations())
-  )
-);
-
--- `local` groups: anyone already in one may add or remove anyone else. There
--- are no roles yet, so this is deliberately flat — the constraint that matters
--- is that the conversation must be VISIBLE to the caller, and a local group is
--- restricted by shape, so visible means participating. You can only add people
--- to rooms you are in.
+-- A row for yourself on a conversation that is visible WITHOUT participation
+-- is not an exception worth carving out, however harmless it looks: it grants
+-- nothing only for as long as the other branch holds. Visibility is `(account
+-- rule and not restricted) or participation`, and the two are independent, so
+-- when a Slack channel stops being shared because the bot left it, the
+-- account branch fails for the whole organization and a self-written row is
+-- what keeps its author reading the history everyone else just lost.
 --
 -- `direct` is absent on purpose, at any size: its roster IS its identity (it
 -- is literally its address), so adding a person would not extend the
 -- conversation, it would name a different one. Starting that conversation is
 -- how you get it.
 --
--- `channel` is absent too — joining one is self-service, above.
-create policy "members can manage local group membership"
+-- One policy, not two, because permissive with-checks OR across every policy
+-- on the command (see the header on 05-04): each half would have to restate
+-- the other's authority test to avoid handing its permission over.
+create policy "members can create local membership rows"
 on public.conversations_agents
 for insert
 to authenticated
 with check (
-  -- "You can only add people to rooms you are in" — stated, not implied. An
-  -- insert consults with-check alone, and permissive with-checks OR across
-  -- every policy on the command, so a clause that only describes the SHAPE of
-  -- the target conversation grants that shape to everyone: without this line
-  -- any authenticated user could add anyone to any local group in the
-  -- database, other tenants' included.
-  conversation_id in (select public.get_participant_conversations())
-  and exists (
+  exists (
     select 1 from public.conversations c
     where c.id = conversation_id
       and c.service = 'local'::public.service
-      and c.type = 'group'
+      and (
+        -- Adding: a group you are in. There are no roles yet, so this is
+        -- deliberately flat. "You can only add people to rooms you are in" —
+        -- stated, not implied: a clause describing only the SHAPE of the
+        -- target would let any authenticated user add anyone to any local
+        -- group in the database, other tenants' included.
+        (
+          c.type = 'group'
+          and conversation_id in (select public.get_participant_conversations())
+        )
+        -- Joining: self-service, since a local channel is open to the
+        -- organization by shape. Naming your own agent is the authority.
+        or (
+          c.type = 'channel'
+          and agent_id in (select public.get_own_agents())
+        )
+      )
   )
 );
 

@@ -11,7 +11,8 @@
 --
 -- Where a conversation is visible org-wide anyway (a shared inbox), a row
 -- here is not what grants that — it just carries the member's own state for
--- the conversation in `extra`. 05-12 turns on exactly that distinction.
+-- the conversation in `extra`. Either way the split above is the one 05-12
+-- enforces: members write this table on `local`, and read it everywhere.
 create table public.conversations_agents (
   organization_id uuid not null,
   -- The account this row stems from: on a mirror service the member's personal
@@ -31,7 +32,11 @@ create table public.conversations_agents (
   organization_address text not null,
   conversation_id uuid not null,
   agent_id uuid not null,
-  extra jsonb, -- e.g. per-member state: muted, last_read_ts
+  -- Per-member state about the conversation: muted, last_read_ts. Members
+  -- write it on `local` (05-12); on a mirror service the row is the sync's,
+  -- and so is this. NOT UI preferences (archived, pinned, drafts), which have
+  -- to be settable on any conversation you can see.
+  extra jsonb,
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null
 );
