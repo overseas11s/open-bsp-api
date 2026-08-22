@@ -23,14 +23,23 @@
 //   {
 //     organization_address: string,     // the connector session's own address
 //     messages?:  [{ external_id, conversation_address, sender_address?,
-//                    thread_id?, content, status?, timestamp }],
+//                    sender_name?, conversation_name?, thread_id?, content,
+//                    status?, timestamp, muted?, archived? }],
 //     statuses?:  [{ external_id, conversation_address,
 //                    status }],         // delivery receipts
 //     contacts?:  [{ address, extra? }],// names, avatars
 //     groups?:    [{ address, name? }], // group subject → conversation name
-//     edits?:     [{ original_message_id, text, timestamp }],
+//     edits?:     [{ original_message_id, conversation_address?,
+//                    sender_address?, text, timestamp }],
 //     revokes?:   [{ original_message_id, timestamp }],
 //   }
+//
+// Names and chat state are DENORMALIZED per message (the connector's address
+// book is the directory OpenBSP cannot see): sender_name folds into the
+// sender's contacts_addresses.extra, conversation_name onto the conversation
+// row, muted/archived into conversations.extra — each reaching rows from that
+// message on, never retroactively. The connector omits muted/archived when
+// false, so on live messages absence means unmuted/unarchived.
 //
 // Automation gating rides on the existing status.pending convention: a LIVE
 // message omits `status`, so the column default ({pending: now()}) arms the
@@ -197,10 +206,19 @@ async function handle(req: Request): Promise<Response> {
       /** The contact who authored the message (the group participant, or the
        * DM peer); omitted when the account itself spoke (echoes, history). */
       sender_address?: string;
+      /** What this account calls the author (address book first, pushname
+       * otherwise); absent for the account's own messages. */
+      sender_name?: string;
+      /** The group's subject, or the peer's name for a direct chat. */
+      conversation_name?: string;
       thread_id?: string;
       content: Json;
       status?: Record<string, Json>;
       timestamp: string;
+      /** The chat's own mute/archive state when the message arrived; omitted
+       * when false, live traffic only. */
+      muted?: boolean;
+      archived?: boolean;
     }>;
     statuses?: Array<{
       external_id: string;
@@ -220,6 +238,10 @@ async function handle(req: Request): Promise<Response> {
     }>;
     edits?: Array<{
       original_message_id: string;
+      /** The chat and author, so an edit whose original never arrived can
+       * still land as a row instead of vanishing. */
+      conversation_address?: string;
+      sender_address?: string;
       text: string;
       timestamp: string;
     }>;
@@ -239,17 +261,36 @@ async function handle(req: Request): Promise<Response> {
 
   const organization_address = batch.organization_address!;
 
-  if (batch.contacts?.length) {
-    const rows: ContactAddressInsert[] = batch.contacts.map((contact) => ({
+  // Sender names ride the messages themselves; fold them into the same
+  // upsert as the contacts feed, feed entries last so an explicit contact
+  // wins over a per-message name within the batch.
+  const contactRows = new Map<string, ContactAddressInsert>();
+
+  for (const message of batch.messages ?? []) {
+    if (!message.sender_address || !message.sender_name) continue;
+
+    contactRows.set(message.sender_address, {
+      organization_id,
+      service,
+      address: message.sender_address,
+      extra: { name: message.sender_name },
+    });
+  }
+
+  for (const contact of batch.contacts ?? []) {
+    contactRows.set(contact.address, {
       organization_id,
       service,
       address: contact.address,
       extra: contact.extra,
-    }));
+    });
+  }
 
+  if (contactRows.size > 0) {
     // Conflict target defaults to the PK (organization_id, service,
     // address); extra is folded in by the merge_update trigger.
-    await client.from("contacts_addresses").upsert(rows).throwOnError();
+    await client.from("contacts_addresses").upsert([...contactRows.values()])
+      .throwOnError();
   }
 
   // Delivery receipts ride as outgoing rows with empty content, exactly like
@@ -372,8 +413,53 @@ async function handle(req: Request): Promise<Response> {
   await upsertBatch("live messages", messages.filter((m) => !m.status));
   await upsertBatch("stamped messages", messages.filter((m) => m.status));
 
-  // Group subjects land on the conversation name. Runs after the message
-  // upserts so a conversation auto-created by this batch already exists; a
+  // Per-message conversation facts, applied after the upserts so rows the
+  // batch itself minted exist: the denormalized name, and the chat's own
+  // mute/archive state into extra (merge_update folds it in). State comes
+  // from LIVE messages only — history and echoes don't carry it — and
+  // absence on a live message means false (the connector omits false), so
+  // an unmute reaches from the next message on. Last message per chat wins.
+  type ConversationFacts = {
+    name?: string;
+    muted?: boolean;
+    archived?: boolean;
+  };
+  const conversationFacts = new Map<string, ConversationFacts>();
+
+  for (const message of batch.messages ?? []) {
+    const facts = conversationFacts.get(message.conversation_address) ?? {};
+
+    if (message.conversation_name) facts.name = message.conversation_name;
+
+    if (!message.status) {
+      facts.muted = message.muted ?? false;
+      facts.archived = message.archived ?? false;
+    }
+
+    conversationFacts.set(message.conversation_address, facts);
+  }
+
+  for (const [address, facts] of conversationFacts) {
+    const patch: Record<string, Json> = {};
+
+    if (facts.name) patch.name = facts.name;
+    if (facts.muted !== undefined) {
+      patch.extra = { muted: facts.muted, archived: facts.archived ?? false };
+    }
+
+    if (Object.keys(patch).length === 0) continue;
+
+    await client
+      .from("conversations")
+      .update(patch)
+      .eq("organization_id", organization_id)
+      .eq("service", service)
+      .eq("address", address)
+      .throwOnError();
+  }
+
+  // Group subjects land on the conversation name. Runs after the per-message
+  // names so the feed — the authoritative subject — wins within a batch; a
   // standalone rename for an unknown group matches no rows, which is fine.
   for (const group of batch.groups ?? []) {
     if (!group.name) continue;
@@ -389,12 +475,43 @@ async function handle(req: Request): Promise<Response> {
 
   // Edits and revokes are in-place updates keyed by the ORIGINAL external
   // id, after the upserts so an original delivered in the same batch exists.
-  for (const { original_message_id, text, timestamp } of batch.edits ?? []) {
-    await client
+  // The merge_update triggers on content/status fold the patch in — a caption
+  // edit on media replaces content.text and leaves the file alone.
+  for (const edit of batch.edits ?? []) {
+    const { original_message_id, conversation_address, sender_address, text } =
+      edit;
+
+    const { data: updated } = await client
       .from("messages")
-      .update({ content: { text }, status: { edited: timestamp } })
+      .update({ content: { text }, status: { edited: edit.timestamp } })
       .eq("external_id", original_message_id)
+      .select("id")
       .throwOnError();
+
+    // No original — it predates the session or fell in a gap. When the edit
+    // carries its coordinates, land it as the message row instead of dropping
+    // the words; stamped status keeps it inert to automation.
+    if (updated.length === 0 && conversation_address) {
+      await client
+        .from("messages")
+        .upsert([{
+          organization_id,
+          service,
+          organization_address,
+          external_id: original_message_id,
+          conversation_address,
+          ...(sender_address && { sender_address }),
+          content: {
+            version: "1",
+            type: "text",
+            kind: "text",
+            text,
+          } as unknown as IncomingMessage,
+          status: { edited: edit.timestamp } as IncomingStatus,
+          timestamp: edit.timestamp,
+        }], { onConflict: "external_id" })
+        .throwOnError();
+    }
   }
 
   for (const { original_message_id, timestamp } of batch.revokes ?? []) {
