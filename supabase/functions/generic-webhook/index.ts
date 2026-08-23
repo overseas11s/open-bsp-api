@@ -300,14 +300,41 @@ async function handle(req: Request): Promise<Response> {
   // the Meta webhooks: the row exists (the dispatcher inserted it), so the
   // upsert only merges status. See whatsapp-webhook for the rationale on
   // upserting statuses and messages in two separate statements.
-  const statuses: MessageInsert[] = (batch.statuses ?? []).map((status) => ({
+  // One batch can carry several receipts for the same message — a bridge that
+  // saw `sent` and `read` in the same poll sends both. Postgres refuses to let
+  // one ON CONFLICT statement touch a row twice (SQLSTATE 21000), so they
+  // cannot both be rows here.
+  //
+  // Collapsing to the last one would throw away the other receipt, which is
+  // the opposite of what the status column is for. Instead fold them into a
+  // single patch — {sent} + {read} becomes {sent, read} — which is precisely
+  // what the merge trigger would have produced had they arrived in two
+  // statements. Later keys win on collision, matching last-write-wins per key.
+  const statusPatches = new Map<string, OutgoingStatus>();
+
+  for (const status of batch.statuses ?? []) {
+    const merged = {
+      ...statusPatches.get(status.external_id),
+      ...(status.status as OutgoingStatus),
+    };
+
+    statusPatches.set(status.external_id, merged);
+  }
+
+  const statusAddresses = new Map(
+    (batch.statuses ?? []).map((s) => [s.external_id, s.conversation_address]),
+  );
+
+  const statuses: MessageInsert[] = [...statusPatches].map((
+    [external_id, status],
+  ) => ({
     organization_id,
     service,
     organization_address,
-    external_id: status.external_id,
-    conversation_address: status.conversation_address,
+    external_id,
+    conversation_address: statusAddresses.get(external_id),
     content: {} as OutgoingMessage, // this will get merged (it won't overwrite)
-    status: status.status as OutgoingStatus,
+    status,
   }));
 
   const messages: MessageInsert[] = (batch.messages ?? []).map(
