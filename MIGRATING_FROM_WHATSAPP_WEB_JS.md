@@ -116,9 +116,8 @@ Content-Type: application/json
 {
   "organization_id": "<org uuid>",
   "organization_address": "<phone_number_id>",
-  "contact_address": "5491155551234",
+  "conversation_address": "5491155551234",
   "service": "whatsapp",
-  "direction": "outgoing",
   "content": {
     "version": "1",
     "type": "text",
@@ -130,7 +129,7 @@ Content-Type: application/json
 
 Key differences:
 
-- **No `@c.us` / `@g.us` suffix.** `contact_address` is bare E.164.
+- **No `@c.us` / `@g.us` suffix.** `conversation_address` is bare E.164.
 - **No in-memory `client`.** Sending is a stateless HTTP call.
 - **Sender is `organization_address`.** It's Meta's `phone_number_id`, not the
   phone number you dialed; look it up once after onboarding and store it.
@@ -154,9 +153,8 @@ await client.sendMessage("5491155551234@c.us", media, {
 {
   "organization_id": "<uuid>",
   "organization_address": "<phone_number_id>",
-  "contact_address": "5491155551234",
+  "conversation_address": "5491155551234",
   "service": "whatsapp",
-  "direction": "outgoing",
   "content": {
     "version": "1",
     "type": "file",
@@ -295,10 +293,10 @@ OpenBSP POSTs you JSON when a new message lands:
   "data": {
     "id": "<uuid>",
     "external_id": "<Meta WAMID>",
-    "direction": "incoming",
     "service": "whatsapp",
     "organization_address": "<phone_number_id>",
-    "contact_address": "5491155551234",
+    "conversation_address": "5491155551234",
+    "sender_address": "5491155551234",
     "content": { "type": "text", "kind": "text", "text": "Hello" },
     "timestamp": "2026-05-20T12:34:56Z"
   }
@@ -307,9 +305,9 @@ OpenBSP POSTs you JSON when a new message lands:
 
 Two things to know:
 
-- **The webhook fires for both directions.** Filter
-  `data.direction ===
-  "incoming"` if you only want inbound.
+- **The webhook fires for both directions.** Filter `data.sender_address` being
+  set — the contact authored it; it is null on outgoing — if you only want
+  inbound.
 - **No long-running process.** Your handler runs per-request. You don't need to
   keep a Chrome instance alive, restart on crashes, or persist a session.
 
@@ -407,15 +405,14 @@ cost of the risks it carries.
   OpenBSP doesn't import them; contacts populate naturally as inbound messages
   arrive.
 - OpenBSP features without a `whatsapp-web.js` equivalent (AI agents,
-  conversation pause, internal-direction messages, the MCP server). See the main
-  README.
+  conversation pause, internal messages, the MCP server). See the main README.
 
 ## Cheat sheet
 
 | If you do this in `whatsapp-web.js`      | …do this in OpenBSP                                                    |
 | ---------------------------------------- | ---------------------------------------------------------------------- |
 | `new Client(...).initialize()` + QR scan | One-time Embedded Signup in the dashboard, then nothing                |
-| `client.sendMessage('NUM@c.us', body)`   | `POST /rest/v1/messages` with `contact_address`, `content.text`        |
+| `client.sendMessage('NUM@c.us', body)`   | `POST /rest/v1/messages` with `conversation_address`, `content.text`   |
 | `MessageMedia.fromFilePath(...)`         | `content.type: "file"`, pass a public URL or `internal://` Storage URI |
 | `msg.reply(text)`                        | set `content.re_message_id` to the inbound's `external_id`             |
 | `msg.react(emoji)`                       | `content.kind: "reaction"`, `data.emoji`, `re_message_id`              |

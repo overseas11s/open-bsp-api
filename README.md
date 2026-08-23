@@ -45,7 +45,6 @@ and offer messaging services to other organizations.
 #### Development
 
 - [Architecture](#architecture)
-- [Configuration](#configuration)
 - [Local development](#local-development)
 
 #### Community
@@ -1049,12 +1048,11 @@ This event-driven flow ensures that each component is decoupled and scalable.
   number for WhatsApp). An address can exist unlinked to any contact, so
   addresses and contacts have independent lifecycles — the sync triggers in this
   table manage linking/unlinking and orphan cleanup.
-- **conversations**: A channel between an `organization_address` and a
-  `conversation_address` (a phone number, a WhatsApp group JID, a Slack channel
-  id) for a given service; belongs to an `organization`. Its `type` says which
-  shape it is: `direct`, `multiple`, `group` or `channel`. Except on the
-  internal `local` service, it mirrors state owned by the external service and
-  is read-only to members.
+- **conversations**: A channel between an `organization_address` and an
+  `address` (a phone number, a WhatsApp group JID, a Slack channel id) for a
+  given service; belongs to an `organization`. Its `type` says which shape it
+  is: `direct`, `group` or `channel`. Except on the internal `local` service, it
+  mirrors state owned by the external service and is read-only to members.
 - **messages**: Messages within a `conversation`; carry authorship, type,
   payload, status, and timestamps.
 - **agents**: Human or AI agents for an `organization`; optionally linked to an
@@ -1066,70 +1064,6 @@ This event-driven flow ensures that each component is decoupled and scalable.
   Also carries each member's own state for the conversation.
 - **logs**: Application-level log entries (errors, warnings) written by Edge
   Functions.
-
-## Configuration
-
-### Organizations
-
-```ts
-export type OrganizationExtra = {
-  media_preprocessing?: {
-    mode?: "active" | "inactive";
-    model?: "gemini-2.5-pro" | "gemini-2.5-flash"; // default: gemini-2.5-flash
-    api_key: string; // default GOOGLE_API_KEY env var
-    language?: string;
-    extra_prompt?: string;
-  };
-  error_messages_direction?: "internal" | "outgoing";
-};
-```
-
-### Agents
-
-The spirit of this project has been to equiparate the experience of human and AI
-agents.
-
-#### Human
-
-Roles and privileges
-
-Set by the `role` column (`agents.role`); only owners may grant one.
-
-- Owner — full control: manage organizations, manage integrations, create
-  agents, invite/remove anyone, grant roles
-- Admin — operational control: manage conversations, edit any agent except its
-  role
-- Member — standard usage: create conversations, use the chat features, edit
-  themselves
-
-An agent with no `user_id` is an AI agent — nobody's membership. It is chosen to
-answer when it is the oldest active one in the organization; AI agents do not
-answer in team chat (`local`, `slack`), only in conversations with contacts.
-
-#### AI
-
-```ts
-export type AgentExtra = {
-  mode?: "active" | "draft" | "inactive";
-  role?: string; // the persona, not access control — that is the `role` column
-  response_delay_seconds?: number; // debounce a burst of messages; default: 3
-  welcome_message?: string; // sent once, on the first inbound message
-  description?: string;
-  api_url?: "openai" | "anthropic" | "google" | "groq" | string; // default: openai
-  api_key?: string; // default: provider env var, i.e. OPENAI_API_KEY
-  model?: string; // default: gpt-5-mini
-  // TODO: Add responses (openai), messages (anthropic), generate-content (gemini).
-  protocol?: "chat_completions" | "responses"; // default: chat_completions
-  assistant_id?: string;
-  max_messages?: number;
-  temperature?: number;
-  max_tokens?: number;
-  thinking?: "minimal" | "low" | "medium" | "high";
-  instructions?: string;
-  send_inline_files_up_to_size_mb?: number;
-  tools?: ToolConfig[];
-};
-```
 
 ## Local development
 

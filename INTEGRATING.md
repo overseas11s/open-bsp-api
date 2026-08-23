@@ -189,7 +189,7 @@ from OpenBSP via the `organizations_addresses` / `logs` channels. OpenBSP does
 **Sending** — two options:
 
 - **Through OpenBSP** (simplest): `POST /rest/v1/messages` with the
-  `organization_address` (the `phone_number_id`), `contact_address`, and a
+  `organization_address` (the `phone_number_id`), `conversation_address`, and a
   `content` object. See [MIGRATING_FROM_TWILIO.md](MIGRATING_FROM_TWILIO.md) for
   the message shapes.
 - **Directly to Meta** (fully autonomous): read `extra.access_token` from

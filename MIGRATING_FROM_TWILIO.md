@@ -10,7 +10,7 @@ Scope: WhatsApp only. Audience: developers comfortable with HTTP and JSON.
 
 | In Twilio you do this                           | In OpenBSP you do this                                                                                          |
 | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `POST /Messages.json` with `From`, `To`, `Body` | `POST /rest/v1/messages` with `organization_address`, `contact_address`, `content.text`                         |
+| `POST /Messages.json` with `From`, `To`, `Body` | `POST /rest/v1/messages` with `organization_address`, `conversation_address`, `content.text`                    |
 | `whatsapp:+E164` everywhere                     | bare E.164, set `service: "whatsapp"` once                                                                      |
 | `MediaUrl` field                                | `content.type: "file"`, pass the public URL in `content.file.uri`                                               |
 | `ContentSid` + `ContentVariables`               | `content.kind: "template"` + `data: { name, language, parameters }` (templates must be re-registered with Meta) |
@@ -63,9 +63,8 @@ Content-Type: application/json
 {
   "organization_id": "<org uuid>",
   "organization_address": "<phone_number_id>",
-  "contact_address": "5491155551234",
+  "conversation_address": "5491155551234",
   "service": "whatsapp",
-  "direction": "outgoing",
   "content": {
     "version": "1",
     "type": "text",
@@ -77,7 +76,8 @@ Content-Type: application/json
 
 Three things change:
 
-- **Drop the `whatsapp:+` prefix.** `contact_address` is bare E.164 (no `+`).
+- **Drop the `whatsapp:+` prefix.** `conversation_address` is bare E.164 (no
+  `+`).
 - **`From` becomes `organization_address`.** It's Meta's `phone_number_id` for
   the WhatsApp Business number you connected (e.g. `123456789012345`), not the
   phone number itself. Look it up once after onboarding and treat it as stable.
@@ -114,9 +114,8 @@ MediaUrl=https://example.com/receipt.pdf
 {
   "organization_id": "<uuid>",
   "organization_address": "<phone_number_id>",
-  "contact_address": "5491155551234",
+  "conversation_address": "5491155551234",
   "service": "whatsapp",
-  "direction": "outgoing",
   "content": {
     "version": "1",
     "type": "file",
@@ -181,9 +180,8 @@ ContentVariables=%7B%221%22%3A%22Acme%22%2C%222%22%3A%22%2450%22%7D
 {
   "organization_id": "<uuid>",
   "organization_address": "<phone_number_id>",
-  "contact_address": "5491155551234",
+  "conversation_address": "5491155551234",
   "service": "whatsapp",
-  "direction": "outgoing",
   "content": {
     "version": "1",
     "type": "data",
@@ -289,10 +287,10 @@ Payload is JSON, not form-urlencoded:
   "action": "insert",
   "data": {
     "id": "<uuid>",
-    "direction": "incoming",
     "service": "whatsapp",
     "organization_address": "<phone_number_id>",
-    "contact_address": "5491155551234",
+    "conversation_address": "5491155551234",
+    "sender_address": "5491155551234",
     "content": { "type": "text", "kind": "text", "text": "..." },
     "timestamp": "2026-05-20T12:34:56Z"
   }
@@ -301,9 +299,9 @@ Payload is JSON, not form-urlencoded:
 
 Two things to know:
 
-- **`messages` mixes both directions.** Filter on
-  `data.direction === "incoming"` in your handler if you only want inbound (the
-  webhook fires for outgoing inserts too).
+- **`messages` mixes both directions.** Filter on `data.sender_address` being
+  set — the contact authored it; it is null on outgoing — if you only want
+  inbound (the webhook fires for outgoing inserts too).
 - **No TwiML.** OpenBSP doesn't have a synchronous-reply mechanism. To reply,
   POST a new outgoing message to `/rest/v1/messages` from your handler — same
   shape as any other send.
@@ -357,7 +355,7 @@ Send-side code doesn't change once the number is connected.
   Management API at `/functions/v1/whatsapp-management/templates` — see the
   OpenAPI spec. The dashboard handles this in the UI for most teams.
 - **OpenBSP-specific features without a Twilio equivalent**: AI agents,
-  conversation pause, internal-direction messages, multi-tenant org isolation,
+  conversation pause, internal messages, multi-tenant org isolation,
   service-window helpers. See the main README.
 - **Inbound media download.** Twilio hosts inbound media on its servers behind
   Basic auth. OpenBSP downloads it from Meta and stores it in Supabase Storage;
