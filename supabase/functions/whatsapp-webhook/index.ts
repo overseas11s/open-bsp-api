@@ -873,6 +873,10 @@ async function processMessage(request: Request): Promise<Response> {
             content: content as OutgoingMessage, // Incoming are a superset of outgoing, except for templates
             status: {
               sent: new Date(webhookMessage.timestamp * 1000).toISOString(),
+              // Replayed by the history sync, so the same disarming applies as
+              // in the threads branch below: the live echo may already have
+              // minted the row with the default arm bit.
+              ...(field === "history" && { pending: null }),
             },
             timestamp: new Date(webhookMessage.timestamp * 1000).toISOString(),
           };
@@ -996,6 +1000,22 @@ async function processMessage(request: Request): Promise<Response> {
                 const status = historyStatusMap[originalStatus] ||
                   originalStatus;
 
+                // Coexistence overlaps: a message recent enough to arrive live
+                // (`messages`/`smb_message_echoes`) is ALSO replayed by the
+                // history sync. The live row is minted first and takes the
+                // column default `{pending: now()}` — the arm bit — and the
+                // history row that follows only merges its own key in, leaving
+                // `pending` set on a message that was delivered months ago.
+                // That is what woke the dispatcher and agent-client on a
+                // backfill. A null in a merge patch REMOVES the key
+                // (merge_update_jsonb, RFC 7396), so stating it here disarms
+                // the row the sync is describing as already-happened.
+                const historyStatus = {
+                  [status]: new Date(webhookMessage.timestamp * 1000)
+                    .toISOString(),
+                  pending: null,
+                };
+
                 const message = isEcho
                   ? {
                     organization_id,
@@ -1006,11 +1026,7 @@ async function processMessage(request: Request): Promise<Response> {
                     organization_address,
                     conversation_address: contact_address,
                     content: content as OutgoingMessage, // Incoming is a superset of outgoing, except for templates
-                    status: {
-                      [status]: new Date(
-                        webhookMessage.timestamp * 1000,
-                      ).toISOString(),
-                    },
+                    status: historyStatus,
                     timestamp: new Date(
                       webhookMessage.timestamp * 1000,
                     ).toISOString(),
@@ -1025,11 +1041,7 @@ async function processMessage(request: Request): Promise<Response> {
                     conversation_address: contact_address,
                     sender_address: contact_address,
                     content, // Incoming is a superset of outgoing, except for templates
-                    status: {
-                      [status]: new Date(
-                        webhookMessage.timestamp * 1000,
-                      ).toISOString(),
-                    },
+                    status: historyStatus,
                     timestamp: new Date(
                       webhookMessage.timestamp * 1000,
                     ).toISOString(),

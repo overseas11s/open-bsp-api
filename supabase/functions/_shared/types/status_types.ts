@@ -62,7 +62,12 @@ export type WebhookStatus = {
 export type Receipt = string | Record<string, string>;
 
 export type IncomingStatus = {
-  pending?: string; // new Date().toISOString()
+  // new Date().toISOString(), or null to retract. `pending` is the arm bit
+  // automation reads, and the column default sets it on every insert that
+  // omits a status — so a writer describing something already finished (a
+  // history replay of a months-old message) has to state the retraction, not
+  // merely leave it out.
+  pending?: string | null;
   read?: Receipt; // per-member map in team chat; scalar elsewhere
   typing?: string;
   edited?: string; // sender edited the message (Instagram, WhatsApp coexistence)
@@ -72,7 +77,7 @@ export type IncomingStatus = {
 };
 
 export type OutgoingStatus = {
-  pending?: string; // new Date().toISOString()
+  pending?: string | null; // as IncomingStatus: null retracts the arm bit
   held_for_quality_assessment?: string;
   accepted?: string;
   sent?: string;
