@@ -354,6 +354,7 @@ async function ensureContact(
     .from("contacts_addresses")
     .select("address")
     .eq("organization_id", ctx.organization_id)
+    .eq("organization_address", ctx.team)
     .eq("service", "slack")
     .eq("address", slackUser)
     .maybeSingle()
@@ -370,6 +371,7 @@ async function ensureContact(
     .from("contacts_addresses")
     .upsert({
       organization_id: ctx.organization_id,
+      organization_address: ctx.team,
       service: "slack" as const,
       address: slackUser,
       extra: {
@@ -383,7 +385,7 @@ async function ensureContact(
         is_app: opts.isApp || undefined,
         picture: profile?.profile?.image_192,
       },
-    }, { onConflict: "organization_id,service,address" })
+    }, { onConflict: "organization_id,organization_address,service,address" })
     .throwOnError();
 }
 
@@ -410,6 +412,7 @@ async function resolveMentions(
     .from("contacts_addresses")
     .select("address, extra")
     .eq("organization_id", ctx.organization_id)
+    .eq("organization_address", ctx.team)
     .eq("service", "slack")
     .in("address", ids)
     .throwOnError();
@@ -885,6 +888,7 @@ async function onUserChange(
     .from("contacts_addresses")
     .upsert({
       organization_id: ctx.organization_id,
+      organization_address: ctx.team,
       service: "slack" as const,
       address: user.id,
       extra: {
@@ -896,7 +900,7 @@ async function onUserChange(
         team_id: ctx.team,
         picture: user.profile?.image_192,
       },
-    }, { onConflict: "organization_id,service,address" })
+    }, { onConflict: "organization_id,organization_address,service,address" })
     .throwOnError();
 }
 

@@ -451,6 +451,7 @@ Deno.serve(async (req) => {
       .from("contacts_addresses")
       .select("phone_number:extra->>phone_number")
       .eq("organization_id", message.organization_id)
+      .eq("organization_address", message.organization_address)
       .eq("service", "whatsapp")
       .eq("address", message.conversation_address)
       .single()

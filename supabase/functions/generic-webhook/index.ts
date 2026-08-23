@@ -271,6 +271,7 @@ async function handle(req: Request): Promise<Response> {
 
     contactRows.set(message.sender_address, {
       organization_id,
+      organization_address,
       service,
       address: message.sender_address,
       extra: { name: message.sender_name },
@@ -280,6 +281,7 @@ async function handle(req: Request): Promise<Response> {
   for (const contact of batch.contacts ?? []) {
     contactRows.set(contact.address, {
       organization_id,
+      organization_address,
       service,
       address: contact.address,
       extra: contact.extra,
@@ -287,8 +289,9 @@ async function handle(req: Request): Promise<Response> {
   }
 
   if (contactRows.size > 0) {
-    // Conflict target defaults to the PK (organization_id, service,
-    // address); extra is folded in by the merge_update trigger.
+    // Conflict target defaults to the PK (organization_id,
+    // organization_address, service, address); extra is folded in by the
+    // merge_update trigger.
     await client.from("contacts_addresses").upsert([...contactRows.values()])
       .throwOnError();
   }

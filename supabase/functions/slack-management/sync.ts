@@ -131,6 +131,7 @@ async function syncDirectory(
 
         return {
           organization_id,
+          organization_address: team_id,
           service: "slack" as const,
           address: u.id,
           extra: {
@@ -147,7 +148,9 @@ async function syncDirectory(
     if (rows.length > 0) {
       await client
         .from("contacts_addresses")
-        .upsert(rows, { onConflict: "organization_id,service,address" })
+        .upsert(rows, {
+          onConflict: "organization_id,organization_address,service,address",
+        })
         .throwOnError();
 
       summary.users += rows.length;

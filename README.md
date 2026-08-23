@@ -1045,9 +1045,12 @@ This event-driven flow ensures that each component is decoupled and scalable.
 - **contacts**: People associated with an `organization` — the address-book
   entry that groups one or more addresses under a name.
 - **contacts_addresses**: Addresses a contact can be reached at (e.g. a phone
-  number for WhatsApp). An address can exist unlinked to any contact, so
-  addresses and contacts have independent lifecycles — the sync triggers in this
-  table manage linking/unlinking and orphan cleanup.
+  number for WhatsApp). Each row is an entry in one connection's address book —
+  it belongs to an `organization_address`, and its visibility follows that
+  account's (a personal connection's contacts are the owner's). An address can
+  exist unlinked to any contact, so addresses and contacts have independent
+  lifecycles — the sync triggers in this table manage linking/unlinking and
+  orphan cleanup.
 - **conversations**: A channel between an `organization_address` and an
   `address` (a phone number, a WhatsApp group JID, a Slack channel id) for a
   given service; belongs to an `organization`. Its `type` says which shape it

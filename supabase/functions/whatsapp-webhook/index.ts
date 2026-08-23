@@ -678,6 +678,7 @@ async function processMessage(request: Request): Promise<Response> {
         for (const contact of value.contacts ?? []) {
           contacts_addresses.push({
             organization_id,
+            organization_address,
             address: contact.wa_id ?? contact.user_id,
             service: "whatsapp",
             extra: {
@@ -919,6 +920,7 @@ async function processMessage(request: Request): Promise<Response> {
 
               contacts_addresses.push({
                 organization_id,
+                organization_address,
                 address: contact_address,
                 service: "whatsapp",
                 extra: {
@@ -1069,6 +1071,7 @@ async function processMessage(request: Request): Promise<Response> {
           if (syncItem.type === "contact") {
             contacts_addresses.push({
               organization_id,
+              organization_address,
               address: syncItem.contact.phone_number ??
                 syncItem.contact.user_id,
               service: "whatsapp" as const,
@@ -1178,14 +1181,14 @@ async function processMessage(request: Request): Promise<Response> {
   );
 
   if (contacts_addresses.length > 0) {
-    // Deduplicate by (organization_id, address, service): Meta may send the
-    // same contact multiple times in one payload (e.g. accumulated state sync
-    // events). PostgreSQL's ON CONFLICT cannot affect the same row twice in a
-    // single statement. Keep the last entry — most recent event wins.
+    // Deduplicate by the PK: Meta may send the same contact multiple times in
+    // one payload (e.g. accumulated state sync events). PostgreSQL's ON
+    // CONFLICT cannot affect the same row twice in a single statement. Keep
+    // the last entry — most recent event wins.
     const dedupedContactsAddresses = Array.from(
       new Map(
         contacts_addresses.map((ca) => [
-          `${ca.organization_id}|${ca.address}|${ca.service}`,
+          `${ca.organization_id}|${ca.organization_address}|${ca.address}|${ca.service}`,
           ca,
         ]),
       ).values(),

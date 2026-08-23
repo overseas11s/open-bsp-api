@@ -208,6 +208,7 @@ export async function listConversations(params: ListConversationsParams) {
     .from("contacts_addresses")
     .select("*, contact:contacts(*)")
     .eq("organization_id", params.orgId)
+    .eq("organization_address", account.address)
     .eq("service", "whatsapp")
     .in(
       "address",
@@ -311,6 +312,7 @@ export async function fetchConversation(params: FetchConversationParams) {
     .from("contacts_addresses")
     .select("*, contacts(*)")
     .eq("organization_id", params.orgId)
+    .eq("organization_address", account.address)
     .eq("service", "whatsapp")
     .eq("address", contactPhone)
     .maybeSingle()
@@ -400,9 +402,13 @@ export async function searchContacts(params: SearchContactsParams) {
   const { data: contacts } = await query.limit(params.limit || 10)
     .throwOnError();
 
-  return {
-    contacts: contacts.map((c) => ({ name: c.contact?.name, phone: c.phone })),
-  };
+  // A contact known through several of the org's numbers is one row per
+  // account — collapse to one result per phone.
+  const byPhone = new Map(
+    contacts.map((c) => [c.phone, { name: c.contact?.name, phone: c.phone }]),
+  );
+
+  return { contacts: [...byPhone.values()] };
 }
 
 interface ListAccountsParams {

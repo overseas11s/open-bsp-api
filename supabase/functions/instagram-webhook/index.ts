@@ -583,7 +583,8 @@ async function processMessage(request: Request): Promise<Response> {
       );
       if (!orgAddress) continue;
 
-      const key = `${orgAddress.organization_id}|${contactAddress}`;
+      const key =
+        `${orgAddress.organization_id}|${orgAddress.address}|${contactAddress}`;
       if (!contactNeeds.has(key)) {
         contactNeeds.set(key, {
           organization_id: orgAddress.organization_id,
@@ -607,7 +608,7 @@ async function processMessage(request: Request): Promise<Response> {
 
     const { data } = await client
       .from("contacts_addresses")
-      .select("organization_id, address, service, extra")
+      .select("organization_id, organization_address, address, service, extra")
       .in("organization_id", orgIds)
       .eq("service", "instagram")
       .in("address", igsids)
@@ -617,7 +618,7 @@ async function processMessage(request: Request): Promise<Response> {
       // Narrow union via the discriminant.
       if (row.service !== "instagram") continue;
       cache.set(
-        `${row.organization_id}|${row.address}`,
+        `${row.organization_id}|${row.organization_address}|${row.address}`,
         row.extra ?? {},
       );
     }
@@ -627,7 +628,9 @@ async function processMessage(request: Request): Promise<Response> {
   const now = Date.now();
   const fetchTasks: ContactNeed[] = [];
   for (const c of contactNeeds.values()) {
-    const cached = cache.get(`${c.organization_id}|${c.igsid}`);
+    const cached = cache.get(
+      `${c.organization_id}|${c.orgAddress.address}|${c.igsid}`,
+    );
     const fetchedAt = cached?.name_fetched_at
       ? Date.parse(cached.name_fetched_at)
       : 0;
@@ -644,7 +647,8 @@ async function processMessage(request: Request): Promise<Response> {
         c.orgAddress.extra?.access_token ?? "",
       );
       return {
-        key: `${c.organization_id}|${c.igsid}` as ContactKey,
+        key:
+          `${c.organization_id}|${c.orgAddress.address}|${c.igsid}` as ContactKey,
         contact: c,
         profile,
         tokenDead,
@@ -688,6 +692,7 @@ async function processMessage(request: Request): Promise<Response> {
     }
     contacts_addresses.push({
       organization_id: contact.organization_id,
+      organization_address: contact.orgAddress.address,
       address: contact.igsid,
       service: "instagram",
       extra,

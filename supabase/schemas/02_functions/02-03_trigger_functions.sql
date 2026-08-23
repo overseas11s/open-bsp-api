@@ -409,11 +409,13 @@ begin
     if not exists (
       select 1 from public.conversations c
       where c.organization_id = new.organization_id
+        and c.organization_address = new.organization_address
         and c.service = new.service
         and c.address = new.address
     ) then
       delete from public.contacts_addresses
       where organization_id = new.organization_id
+        and organization_address = new.organization_address
         and service = new.service
         and address = new.address;
     end if;

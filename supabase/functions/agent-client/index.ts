@@ -239,6 +239,7 @@ Deno.serve(async (req) => {
       .from("contacts_addresses")
       .select("*, contacts (*)")
       .eq("organization_id", conv.organization_id)
+      .eq("organization_address", conv.organization_address)
       .eq("service", conv.service)
       .eq("address", conv.address)
       .maybeSingle()

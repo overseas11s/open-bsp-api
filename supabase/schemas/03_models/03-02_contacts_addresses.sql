@@ -5,6 +5,7 @@
 create table public.contacts_addresses (
   organization_id uuid not null,
   contact_id uuid,
+  organization_address text not null,
   service public.service not null,
   address text not null,
   extra jsonb,
@@ -13,12 +14,31 @@ create table public.contacts_addresses (
   updated_at timestamp with time zone default now() not null
 );
 
--- service is part of the PK: the same canonical address (e.g. bare phone
--- digits shared by 'whatsapp' and 'whatsapp-web') is a separate row per
--- service. Cross-service identity lives at the contacts level via contact_id.
+-- A row is an entry in ONE connection's address book, so the account key
+-- (organization_id, service, organization_address) is part of the PK:
+--
+--   * service: the same canonical address (e.g. bare phone digits shared by
+--     'whatsapp' and 'whatsapp-web') is a separate row per service.
+--   * organization_address: opaque counterpart ids (BSUID, LID) are only
+--     meaningful relative to the account that observed them, and each
+--     connection syncs its own contact list — the same person reachable
+--     through two of the org's numbers is a row per number. Visibility
+--     follows the account too (a personal connection's contacts are the
+--     owner's, see 05-02).
+--
+-- Cross-service/cross-account identity lives at the contacts level via
+-- contact_id.
 alter table only public.contacts_addresses
 add constraint contacts_addresses_pkey
-primary key (organization_id, service, address);
+primary key (organization_id, organization_address, service, address);
+
+-- service is inside the reference so a contact row can never claim an account
+-- of a different service, exactly as conversations does.
+alter table only public.contacts_addresses
+add constraint contacts_addresses_organization_address_fkey
+foreign key (organization_id, service, organization_address)
+references public.organizations_addresses(organization_id, service, address)
+on delete cascade;
 
 alter table only public.contacts_addresses
 add constraint contacts_addresses_organization_id_fkey

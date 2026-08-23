@@ -704,6 +704,7 @@ export type Database = {
           contact_id: string | null
           created_at: string
           extra: Json | null
+          organization_address: string
           organization_id: string
           service: Database["public"]["Enums"]["service"]
           status: string
@@ -714,6 +715,7 @@ export type Database = {
           contact_id?: string | null
           created_at?: string
           extra?: Json | null
+          organization_address: string
           organization_id: string
           service: Database["public"]["Enums"]["service"]
           status?: string
@@ -724,6 +726,7 @@ export type Database = {
           contact_id?: string | null
           created_at?: string
           extra?: Json | null
+          organization_address?: string
           organization_id?: string
           service?: Database["public"]["Enums"]["service"]
           status?: string
@@ -736,6 +739,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "contacts"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contacts_addresses_organization_address_fkey"
+            columns: ["organization_id", "service", "organization_address"]
+            isOneToOne: false
+            referencedRelation: "organizations_addresses"
+            referencedColumns: ["organization_id", "service", "address"]
           },
           {
             foreignKeyName: "contacts_addresses_organization_id_fkey"
@@ -1229,6 +1239,7 @@ export type Database = {
         Args: {
           p_address: string
           p_extra: Json
+          p_organization_address: string
           p_organization_id: string
           p_service: Database["public"]["Enums"]["service"]
           p_status: string

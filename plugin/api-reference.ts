@@ -92,6 +92,7 @@ All tables are scoped by \`organization_id\` via Row Level Security (RLS).
 | Column | Type | Notes |
 |--------|------|-------|
 | organization_id | uuid | PK, FK → organizations.id |
+| organization_address | text | PK, FK → organizations_addresses (the connection whose address book this entry belongs to) |
 | service | service | PK (whatsapp, etc.) |
 | address | text | PK (phone number ID) |
 | contact_id | uuid | FK → contacts.id |
