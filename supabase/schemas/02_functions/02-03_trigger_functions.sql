@@ -330,95 +330,27 @@ begin
 end;
 $$;
 
--- BEFORE trigger: creates contact on ADD, unlinks on REMOVE.
--- Must stay BEFORE to modify new.contact_id.
-create function public.manage_contact_on_address_sync() returns trigger
+-- AFTER trigger: a synced REMOVE dropped the entry from the service's address
+-- book — delete the row too, unless a conversation still references the
+-- address. The conversation's address equals the contact's exactly on direct
+-- chats — the only shape a contact entry describes.
+create function public.cleanup_removed_address_if_empty() returns trigger
 language plpgsql
 set search_path = ''
 as $$
 begin
-  -- Case 1: Synced Action = ADD
-  if new.extra->'synced'->>'action' = 'add' then
-    if old is not null and old.contact_id is not null then
-      -- Preserve existing link: the upsert payload doesn't include contact_id,
-      -- so new.contact_id would be null and overwrite the existing link.
-      new.contact_id := old.contact_id;
-    elsif new.contact_id is null then
-      -- No contact linked from either side, create one
-      insert into public.contacts (
-        organization_id,
-        name
-      ) values (
-        new.organization_id,
-        new.extra->'synced'->>'name'
-      ) returning id into new.contact_id;
-    end if;
-  end if;
-
-  -- Case 2: Synced Action = REMOVE
-  -- Unlink. The orphan cleanup happens in the AFTER trigger below to avoid
-  -- error 27000 ("tuple to be updated was already modified by an operation
-  -- triggered by the current command") caused by the ON DELETE SET NULL
-  -- cascade touching the current row.
-  -- Note: the address itself might be deleted by cleanup_unlinked_address_if_empty.
-  if new.extra->'synced'->>'action' = 'remove' then
-    new.contact_id := null;
-  end if;
-
-  return new;
-end;
-$$;
-
--- AFTER trigger: cleans up orphaned contact when the last address that
--- referenced it is unlinked via a REMOVE sync event.
-create function public.cleanup_orphaned_contact_on_sync() returns trigger
-language plpgsql
-set search_path = ''
-as $$
-declare
-  _active_count int;
-begin
-  -- At this point new.contact_id is null (set by manage_contact_on_address_sync).
-  -- Count any other active addresses still referencing the old contact.
-  select count(*) into _active_count
-  from public.contacts_addresses
-  where contact_id = old.contact_id
-    and status = 'active';
-
-  -- If no other addresses reference it, delete the orphaned contact.
-  if _active_count = 0 then
-    delete from public.contacts where id = old.contact_id;
-  end if;
-
-  return null;
-end;
-$$;
-
--- 1. Manual unlink by user
--- 2. Unlink caused by contact deletion (via ON DELETE SET NULL constraint)
-create function public.cleanup_unlinked_address_if_empty() returns trigger
-language plpgsql
-set search_path = ''
-as $$
-begin
-  -- Only if we became unlinked (contact_id IS NULL)
-  if new.contact_id is null and old.contact_id is not null then
-    -- If no conversations, delete the address. The conversation's address
-    -- equals the contact's exactly on direct chats — the only shape that
-    -- links a contact in the first place.
-    if not exists (
-      select 1 from public.conversations c
-      where c.organization_id = new.organization_id
-        and c.organization_address = new.organization_address
-        and c.service = new.service
-        and c.address = new.address
-    ) then
-      delete from public.contacts_addresses
-      where organization_id = new.organization_id
-        and organization_address = new.organization_address
-        and service = new.service
-        and address = new.address;
-    end if;
+  if not exists (
+    select 1 from public.conversations c
+    where c.organization_id = new.organization_id
+      and c.organization_address = new.organization_address
+      and c.service = new.service
+      and c.address = new.address
+  ) then
+    delete from public.contacts_addresses
+    where organization_id = new.organization_id
+      and organization_address = new.organization_address
+      and service = new.service
+      and address = new.address;
   end if;
 
   return null;

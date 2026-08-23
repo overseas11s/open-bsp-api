@@ -1,10 +1,9 @@
 -- FRONTEND NOTE: PostgreSQL checks INSERT policy BEFORE conflict detection.
--- Upsert with synced.action='add' in payload fails even if row exists.
--- Use .upsert() for linking, .update() for unlinking.
+-- A member upsert whose payload carries synced.action='add' fails even if the
+-- row exists — use .update() to touch a synced row.
 
 create table public.contacts_addresses (
   organization_id uuid not null,
-  contact_id uuid,
   organization_address text not null,
   service public.service not null,
   address text not null,
@@ -26,8 +25,9 @@ create table public.contacts_addresses (
 --     follows the account too (a personal connection's contacts are the
 --     owner's, see 05-02).
 --
--- Cross-service/cross-account identity lives at the contacts level via
--- contact_id.
+-- There is deliberately no cross-service/cross-account identity layer:
+-- openbsp is a comm layer, and who-is-who across services belongs to the
+-- consumer.
 alter table only public.contacts_addresses
 add constraint contacts_addresses_pkey
 primary key (organization_id, organization_address, service, address);
@@ -45,15 +45,6 @@ add constraint contacts_addresses_organization_id_fkey
 foreign key (organization_id)
 references public.organizations(id)
 on delete cascade;
-
-alter table only public.contacts_addresses
-add constraint contacts_addresses_contact_id_fkey
-foreign key (contact_id)
-references public.contacts(id)
-on delete set null;
-
-create index contacts_addresses_contact_id_idx 
-on public.contacts_addresses using btree (contact_id);
 
 create trigger set_extra
 before update
@@ -76,38 +67,18 @@ on public.contacts_addresses
 for each row
 execute function public.notify_webhook();
 
-create trigger manage_contact_on_address_sync -- Should execute before merge_update
-before insert or update
-on public.contacts_addresses
-for each row
-when (
-  new.extra->'synced' is not null -- Performance optimization
-)
-execute function public.manage_contact_on_address_sync();
-
--- Runs before cleanup_unlinked_address_if_empty (alphabetical order) so that
--- the orphaned contact is deleted before the current address (if any) is.
-create trigger cleanup_orphaned_contact_on_sync
+-- A synced REMOVE means the entry left the service's address book: drop the
+-- row too, unless conversation history still references the address — then it
+-- stays (its extra keeps naming that history), flagged by synced.action.
+create trigger cleanup_removed_address_if_empty
 after update
 on public.contacts_addresses
 for each row
 when (
-  old.contact_id is not null
-  and new.contact_id is null
-  and new.extra->'synced'->>'action' = 'remove'
+  new.extra->'synced'->>'action' = 'remove'
+  and old.extra->'synced'->>'action' is distinct from 'remove'
 )
-execute function public.cleanup_orphaned_contact_on_sync();
-
-create trigger cleanup_unlinked_address_if_empty
-after update
-on public.contacts_addresses
-for each row
-when (
-  old.contact_id is not null
-  and new.contact_id is null
-  and new.extra->'synced'->>'action' is distinct from 'add' -- Ignore active synced addresses
-)
-execute function public.cleanup_unlinked_address_if_empty();
+execute function public.cleanup_removed_address_if_empty();
 
 -- Lookup by BSUID (e.g. the user_id_update handler matching extra.bsuid).
 create index contacts_addresses_bsuid_idx

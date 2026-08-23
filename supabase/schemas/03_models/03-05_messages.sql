@@ -1,5 +1,4 @@
--- organization_id is useful for realtime. It could be argued that if there
--- is organization_id then there is room for contact_id, but it is not necessary now.
+-- organization_id is useful for realtime.
 create table public.messages (
   organization_id uuid not null,
   conversation_id uuid not null,

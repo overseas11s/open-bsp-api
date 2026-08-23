@@ -417,7 +417,7 @@ cost of the risks it carries.
 | `msg.reply(text)`                        | set `content.re_message_id` to the inbound's `external_id`             |
 | `msg.react(emoji)`                       | `content.kind: "reaction"`, `data.emoji`, `re_message_id`              |
 | `client.on('message', fn)`               | one row in `webhooks` table with `operations: ["insert"]`              |
-| `client.getChats()` / `getContactById()` | `GET /rest/v1/conversations`, `/contacts` over PostgREST               |
+| `client.getChats()` / `getContactById()` | `GET /rest/v1/conversations`, `/contacts_addresses` over PostgREST     |
 | Group create / add / remove              | **No equivalent** — Cloud API doesn't expose group management          |
 | Polls / Communities / Channels / Status  | **No equivalent** — Cloud API doesn't expose them                      |
 | First-touch message to any number        | Register and send a template instead                                   |

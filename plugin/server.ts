@@ -73,14 +73,18 @@ async function resolveContactName(
   const cached = contactNameCache.get(contactAddress);
   if (cached) return cached;
 
+  // One row per (service, connection) — take any that carries a name, the
+  // saved address-book name winning over the contact's own push name.
   const { data } = await supabase
-    .from("contacts")
-    .select("name")
+    .from("contacts_addresses")
+    .select("extra")
     .eq("organization_id", orgId)
     .eq("address", contactAddress)
-    .maybeSingle();
+    .limit(10);
 
-  const name = data?.name ?? contactAddress;
+  const name = data
+    ?.map((r) => r.extra?.synced?.name ?? r.extra?.name)
+    .find((n): n is string => typeof n === "string") ?? contactAddress;
   contactNameCache.set(contactAddress, name);
   return name;
 }

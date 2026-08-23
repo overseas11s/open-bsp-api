@@ -37,9 +37,11 @@ with check (
   and (extra->'synced'->>'action') is distinct from 'add'
 );
 
--- Members can update contacts addresses
--- The only thing members should update is 'contact_id'.
-create policy "members can update contacts addresses"
+-- Members can update non-synced addresses. Synced entries mirror the
+-- service's address book — only the service writes them, same rule as
+-- insert/delete below; the with check keeps a member from turning a row
+-- into a synced one.
+create policy "members can update non-synced contacts addresses"
 on public.contacts_addresses
 for update
 to authenticated, anon
@@ -51,6 +53,7 @@ using (
     select v.organization_id, v.service, v.address
     from public.get_visible_addresses() v
   )
+  and (extra->'synced'->>'action') is distinct from 'add'
 )
 with check (
   organization_id in (
@@ -60,14 +63,7 @@ with check (
     select v.organization_id, v.service, v.address
     from public.get_visible_addresses() v
   )
-  and public.contact_address_update_rules(
-    organization_id,
-    organization_address,
-    service,
-    address,
-    extra,
-    status
-  )
+  and (extra->'synced'->>'action') is distinct from 'add'
 );
 
 -- Members can delete non-synced addresses

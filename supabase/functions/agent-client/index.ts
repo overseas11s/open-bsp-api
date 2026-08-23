@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import * as log from "../_shared/logger.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import {
-  type ContactRow,
+  contactName,
   createUnsecureClient,
   type Database,
   type DataPart,
@@ -23,7 +23,11 @@ import { callTool, initMCP, type MCPServer } from "./tools/mcp.ts";
 import { Toolbox } from "./tools/index.ts";
 import { z } from "zod";
 import Ajv2020 from "ajv";
-import type { AgentRowWithExtra, ResponseContext } from "./protocols/base.ts";
+import type {
+  AgentRowWithExtra,
+  ContactInfo,
+  ResponseContext,
+} from "./protocols/base.ts";
 import { getFileMetadata } from "../_shared/media.ts";
 
 const sanitizeLabel = (label: string) => {
@@ -226,18 +230,18 @@ Deno.serve(async (req) => {
   // a contact — so the DM path skips the query and shapes the author's agent
   // row like a contact instead: the protocol handlers only want a name.
 
-  let contact: ContactRow | undefined;
+  let contact: ContactInfo | undefined;
 
   if (conv.service === "local") {
     const author = agents.find((a) => a.id === incoming.agent_id);
 
     if (author) {
-      contact = { name: author.name } as ContactRow;
+      contact = { name: author.name };
     }
   } else {
     const { data: contact_address } = await client
       .from("contacts_addresses")
-      .select("*, contacts (*)")
+      .select("*")
       .eq("organization_id", conv.organization_id)
       .eq("organization_address", conv.organization_address)
       .eq("service", conv.service)
@@ -246,23 +250,7 @@ Deno.serve(async (req) => {
       .throwOnError();
 
     if (contact_address) {
-      contact = contact_address.contacts || undefined;
-
-      if (!contact_address.extra) {
-        contact_address.extra = {};
-      }
-
-      if (!contact && contact_address.extra.name) {
-        contact = {
-          name: contact_address.extra.name,
-        } as ContactRow;
-      }
-    }
-  }
-
-  if (contact) {
-    if (!contact.extra) {
-      contact.extra = {};
+      contact = { name: contactName(contact_address.extra) };
     }
   }
 
@@ -997,19 +985,6 @@ Deno.serve(async (req) => {
 
     if (error) {
       log.error("Failed to update conversation extra field.", error);
-    }
-  }
-
-  if (contact && response?.contact) {
-    const { error } = await client
-      .from("contacts")
-      .update({
-        extra: response.contact.extra,
-      })
-      .eq("id", contact.id);
-
-    if (error) {
-      log.error("Failed to update contact extra field.", error);
     }
   }
   */

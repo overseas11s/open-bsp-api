@@ -15,7 +15,6 @@ create type public.webhook_table as enum (
   'messages',
   'conversations',
   'organizations_addresses',
-  'contacts',
   'contacts_addresses',
   'logs'
 );

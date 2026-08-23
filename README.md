@@ -1042,15 +1042,13 @@ This event-driven flow ensures that each component is decoupled and scalable.
 - **organizations**: Tenant entity; holds organization metadata.
 - **organizations_addresses**: An organization's connected addresses per service
   — e.g. a WhatsApp phone number. Belongs to an `organization`.
-- **contacts**: People associated with an `organization` — the address-book
-  entry that groups one or more addresses under a name.
-- **contacts_addresses**: Addresses a contact can be reached at (e.g. a phone
-  number for WhatsApp). Each row is an entry in one connection's address book —
-  it belongs to an `organization_address`, and its visibility follows that
-  account's (a personal connection's contacts are the owner's). An address can
-  exist unlinked to any contact, so addresses and contacts have independent
-  lifecycles — the sync triggers in this table manage linking/unlinking and
-  orphan cleanup.
+- **contacts_addresses**: The address-book entries — an address a contact can be
+  reached at (e.g. a phone number for WhatsApp), with its display name in
+  `extra`. Each row is an entry in one connection's address book — it belongs to
+  an `organization_address`, and its visibility follows that account's (a
+  personal connection's contacts are the owner's). There is deliberately no
+  cross-service contact identity: openbsp is a comm layer, and who-is-who across
+  services belongs to the consumer.
 - **conversations**: A channel between an `organization_address` and an
   `address` (a phone number, a WhatsApp group JID, a Slack channel id) for a
   given service; belongs to an `organization`. Its `type` says which shape it

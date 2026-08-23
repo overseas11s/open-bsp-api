@@ -112,8 +112,6 @@ export type ConversationExtra = {
   user?: string;
 };
 
-export type ContactExtra = Record<PropertyKey, never>;
-
 export type WhatsAppContactAddressExtra = {
   name?: string;
   username?: string;
@@ -156,6 +154,17 @@ export type ContactAddressExtra =
   | WhatsAppContactAddressExtra
   | InstagramContactAddressExtra
   | SlackContactAddressExtra;
+
+// The display name of a contacts_addresses row: the name the user saved in
+// the service's address book (synced) wins over the name the contact set for
+// themself (push name, profile).
+export function contactName(
+  extra: ContactAddressExtra | null | undefined,
+): string | undefined {
+  if (!extra) return undefined;
+  const synced = "synced" in extra ? extra.synced : undefined;
+  return synced?.name ?? extra.name;
+}
 
 // Function tools have a JSON input (data part).
 export type LocalFunctionToolConfig = {

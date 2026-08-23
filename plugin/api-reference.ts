@@ -29,8 +29,7 @@ All \`/rest/v1/\` endpoints use [PostgREST](https://postgrest.org) syntax.
 
 ### Embedding relations (joins)
 
-\`?select=*,contacts_addresses(*)\` — embed related table via FK.
-\`?select=*,messages(id,content,sender_address)\` — embed with column selection.
+\`?select=*,messages(id,content,sender_address)\` — embed related table via FK, with column selection.
 
 ### Ordering
 
@@ -44,15 +43,15 @@ Or use the \`Range\` header: \`Range: 0-9\` (first 10 rows).
 
 ### Insert (POST)
 
-\`POST /rest/v1/contacts\` with JSON body. Add \`Prefer: return=representation\` header to get the created row back.
+\`POST /rest/v1/messages\` with JSON body. Add \`Prefer: return=representation\` header to get the created row back.
 
 ### Update (PATCH)
 
-\`PATCH /rest/v1/contacts?id=eq.<uuid>\` with JSON body of fields to update. Always include filter to avoid updating all rows. Add \`Prefer: return=representation\` to get updated rows.
+\`PATCH /rest/v1/conversations?id=eq.<uuid>\` with JSON body of fields to update. Always include filter to avoid updating all rows. Add \`Prefer: return=representation\` to get updated rows.
 
 ### Delete (DELETE)
 
-\`DELETE /rest/v1/contacts?id=eq.<uuid>\`. Always include filter.
+\`DELETE /rest/v1/conversations?id=eq.<uuid>\`. Always include filter.
 
 ### Counting
 
@@ -77,17 +76,6 @@ All tables are scoped by \`organization_id\` via Row Level Security (RLS).
 | created_at | timestamptz | default: now() |
 | updated_at | timestamptz | default: now() |
 
-### contacts
-| Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | PK, default: gen_random_uuid() |
-| organization_id | uuid | FK → organizations.id |
-| name | text | |
-| extra | jsonb | |
-| status | text | default: active |
-| created_at | timestamptz | default: now() |
-| updated_at | timestamptz | default: now() |
-
 ### contacts_addresses
 | Column | Type | Notes |
 |--------|------|-------|
@@ -95,8 +83,7 @@ All tables are scoped by \`organization_id\` via Row Level Security (RLS).
 | organization_address | text | PK, FK → organizations_addresses (the connection whose address book this entry belongs to) |
 | service | service | PK (whatsapp, etc.) |
 | address | text | PK (phone number ID) |
-| contact_id | uuid | FK → contacts.id |
-| extra | jsonb | |
+| extra | jsonb | display name lives here: extra.synced.name (saved address-book name) or extra.name (the contact's own push name) |
 | status | text | default: active |
 | created_at | timestamptz | default: now() |
 | updated_at | timestamptz | default: now() |
@@ -174,7 +161,7 @@ Types: text, file, data. Kinds vary by type (text: text/reaction/caption; file: 
 |--------|------|-------|
 | id | uuid | PK, default: gen_random_uuid() |
 | organization_id | uuid | FK → organizations.id |
-| table_name | webhook_table | messages, conversations, contacts |
+| table_name | webhook_table | messages, conversations, organizations_addresses, contacts_addresses, logs |
 | operations | webhook_operation[] | INSERT, UPDATE, DELETE |
 | url | varchar | |
 | token | varchar | |
@@ -231,13 +218,10 @@ Types: text, file, data. Kinds vary by type (text: text/reaction/caption; file: 
 ## Example Queries
 
 **List contacts (first 10):**
-\`GET /rest/v1/contacts?select=id,name,status&limit=10&order=name.asc\`
+\`GET /rest/v1/contacts_addresses?select=address,extra,status&limit=10&order=address.asc\`
 
-**Search contacts by name:**
-\`GET /rest/v1/contacts?name=ilike.*john*&select=id,name\`
-
-**Get a contact with their addresses:**
-\`GET /rest/v1/contacts?id=eq.<uuid>&select=*,contacts_addresses(*)\`
+**Search contacts by name:** (name lives in extra — saved address-book name or push name)
+\`GET /rest/v1/contacts_addresses?or=(extra->synced->>name.ilike.*john*,extra->>name.ilike.*john*)&select=address,extra\`
 
 **Recent conversations:**
 \`GET /rest/v1/conversations?select=id,address,updated_at,name&order=updated_at.desc&limit=10\`
@@ -254,9 +238,8 @@ Types: text, file, data. Kinds vary by type (text: text/reaction/caption; file: 
 **List AI agents:** (an agent with no user is an AI agent)
 \`GET /rest/v1/agents?user_id=is.null&deleted_at=is.null&select=id,name,extra\`
 
-**Create a contact:**
-\`POST /rest/v1/contacts\` with body \`{"name": "John Doe"}\` and header \`Prefer: return=representation\`
-(organization_id is set automatically by RLS)
+**Create a contact address:**
+\`POST /rest/v1/contacts_addresses\` with body \`{"organization_id": "<uuid>", "organization_address": "<org_phone_number_id>", "service": "whatsapp", "address": "<contact_phone>", "extra": {"name": "John Doe"}}\` and header \`Prefer: return=representation\`
 
 **Send a message (via insert):**
 \`POST /rest/v1/messages\` with body:

@@ -135,30 +135,6 @@ begin
 end;
 $$;
 
--- Check if contact address fields are unchanged (for contact_id updates)
-create function public.contact_address_update_rules(
-  p_organization_id uuid,
-  p_organization_address text,
-  p_service public.service,
-  p_address text,
-  p_extra jsonb,
-  p_status text
-) returns boolean
-language plpgsql
-set search_path to ''
-as $$
-begin
-  return exists (
-    select 1 from public.contacts_addresses
-    where organization_id = p_organization_id
-      and organization_address = p_organization_address
-      and address = p_address
-      and service = p_service
-      and status = p_status
-      and extra is not distinct from p_extra
-  );
-end;
-$$;
 -- The caller's own agent rows, across every org they belong to. A user has at
 -- most one agent per organization (agents_organization_id_user_id_key), so
 -- this is "which agent am I here". Set-returning for the same reason as the

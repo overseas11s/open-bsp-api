@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { contactName } from "../_shared/supabase.ts";
 import type {
   Database,
   IncomingStatus,
@@ -206,7 +207,7 @@ export async function listConversations(params: ListConversationsParams) {
 
   const { data: contactRows } = await params.supabase
     .from("contacts_addresses")
-    .select("*, contact:contacts(*)")
+    .select("*")
     .eq("organization_id", params.orgId)
     .eq("organization_address", account.address)
     .eq("service", "whatsapp")
@@ -234,8 +235,7 @@ export async function listConversations(params: ListConversationsParams) {
 
       return {
         contact: {
-          name: contactAddress?.contact?.name ||
-            contactAddress?.extra?.name || "Unknown",
+          name: contactName(contactAddress?.extra) || "Unknown",
           phone: c.address,
         },
         unread: countUnread(c.messages),
@@ -310,7 +310,7 @@ export async function fetchConversation(params: FetchConversationParams) {
   // The contact rides its own query (soft reference, no FK to embed by).
   const { data: contactAddressRow } = await params.supabase
     .from("contacts_addresses")
-    .select("*, contacts(*)")
+    .select("*")
     .eq("organization_id", params.orgId)
     .eq("organization_address", account.address)
     .eq("service", "whatsapp")
@@ -354,8 +354,7 @@ export async function fetchConversation(params: FetchConversationParams) {
   return {
     account: { name: account.name, phone: account.phone },
     contact: {
-      name: contactAddressRow?.contacts?.name ||
-        contactAddressRow?.extra?.name,
+      name: contactName(contactAddressRow?.extra),
       phone: contactPhone,
     },
     service_window: serviceWindow,
@@ -376,13 +375,9 @@ export async function searchContacts(params: SearchContactsParams) {
   const number = params.number ? normalizePhone(params.number) : undefined;
   const allowedContacts = params.allowedContacts;
 
-  const select = params.name
-    ? "phone:address, contact:contacts!inner(name)"
-    : "phone:address, contact:contacts(name)";
-
   let query = params.supabase
     .from("contacts_addresses")
-    .select(select)
+    .select("phone:address, extra")
     .eq("organization_id", params.orgId)
     .eq("service", "whatsapp")
     .eq("status", "active");
@@ -396,7 +391,13 @@ export async function searchContacts(params: SearchContactsParams) {
   }
 
   if (params.name) {
-    query = query.ilike("contacts.name", `%${params.name}%`);
+    // Match both name sources (the saved address-book name and the push
+    // name); the pattern is quoted so commas/parens in the term don't break
+    // the or().
+    const pattern = `"*${params.name.replaceAll('"', "")}*"`;
+    query = query.or(
+      `extra->synced->>name.ilike.${pattern},extra->>name.ilike.${pattern}`,
+    );
   }
 
   const { data: contacts } = await query.limit(params.limit || 10)
@@ -405,7 +406,9 @@ export async function searchContacts(params: SearchContactsParams) {
   // A contact known through several of the org's numbers is one row per
   // account — collapse to one result per phone.
   const byPhone = new Map(
-    contacts.map((c) => [c.phone, { name: c.contact?.name, phone: c.phone }]),
+    contacts.map((
+      c,
+    ) => [c.phone, { name: contactName(c.extra), phone: c.phone }]),
   );
 
   return { contacts: [...byPhone.values()] };

@@ -37,9 +37,8 @@ export async function syncConnection(
 ): Promise<SyncSummary> {
   const summary: SyncSummary = { users: 0, conversations: 0 };
 
-  // Workspace directory → contacts. The extra.synced mechanism lets the
-  // manage_contact_on_address_sync trigger create/link public.contacts rows,
-  // same as the whatsapp-web bridge. Slack user ids are workspace-scoped;
+  // Workspace directory → contacts_addresses, marked extra.synced same as
+  // the whatsapp-web bridge. Slack user ids are workspace-scoped;
   // contacts/conversations use bare ids (U…/C…) — only organization address
   // rows are team-qualified (T…:U…).
   const usersById = await syncDirectory(client, {

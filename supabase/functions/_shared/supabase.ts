@@ -11,8 +11,6 @@ export type {
   ApiKeyRow,
   ContactAddressInsert,
   ContactAddressRow,
-  ContactInsert,
-  ContactRow,
   ConversationRow,
   Database,
   Json,
@@ -96,7 +94,6 @@ export type {
 export type {
   AIAgentExtra,
   ContactAddressExtra,
-  ContactExtra,
   ConversationExtra,
   InstagramContactAddressExtra,
   InstagramOrganizationAddressExtra,
@@ -115,6 +112,7 @@ export type {
   WhatsAppContactAddressExtra,
   WhatsAppOrganizationAddressExtra,
 } from "./types/extra_types.ts";
+export { contactName } from "./types/extra_types.ts";
 export type {
   IgAttachmentType,
   IgEndpointMessage,

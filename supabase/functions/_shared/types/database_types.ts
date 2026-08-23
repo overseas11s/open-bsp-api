@@ -14,7 +14,6 @@ import type { ConversationType } from "./conversation_types.ts";
 import type {
   AIAgentExtra,
   ContactAddressExtra,
-  ContactExtra,
   ConversationExtra,
   OrganizationAddressExtra,
   OrganizationExtra,
@@ -81,17 +80,6 @@ export type Database = MergeDeep<
             status?: IncomingStatus | OutgoingStatus;
           };
         };
-        contacts: {
-          Row: {
-            extra: ContactExtra | null;
-          };
-          Insert: {
-            extra?: ContactExtra;
-          };
-          Update: {
-            extra?: ContactExtra;
-          };
-        };
         contacts_addresses: {
           Row: {
             extra: ContactAddressExtra | null;
@@ -128,9 +116,6 @@ export type ConversationRow =
 
 export type OrganizationRow =
   Database["public"]["Tables"]["organizations"]["Row"];
-
-export type ContactRow = Database["public"]["Tables"]["contacts"]["Row"];
-export type ContactInsert = Database["public"]["Tables"]["contacts"]["Insert"];
 
 export type ContactAddressRow =
   Database["public"]["Tables"]["contacts_addresses"]["Row"];

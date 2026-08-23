@@ -17,3 +17,9 @@
 - Invitations moved to `public.invitations`, keyed by email; answer them with
   the `accept_invitation` / `reject_invitation` RPCs. Inserting an agent with a
   `user_id` is refused; people join by accepting.
+- `contacts_addresses` is keyed
+  `(organization_id, organization_address, service, address)`: the same peer
+  through two connections is two rows.
+- `contacts` is dropped, along with `contacts_addresses.contact_id`: the
+  address-book entry is the `contacts_addresses` row itself, its display name in
+  `extra` (`synced.name`, else `name`). `contacts` webhooks are gone.
