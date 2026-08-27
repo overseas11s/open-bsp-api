@@ -2,6 +2,7 @@
 // whatsapp-web, ...): who may touch an org's connections. The rule, in one
 // place: admins manage every account; a member additionally manages a
 // USER-SCOPED one — an address whose agent_id names their own agent.
+
 import type { Context } from "@hono/hono";
 import { HTTPException } from "jsr:@hono/hono/http-exception";
 import type { User } from "@supabase/supabase-js";
@@ -24,6 +25,13 @@ export type ManagementEnv = {
     apiKey?: ApiKeyRow;
     /** The raw bearer token, where a function keeps it around. */
     token?: string;
+    /**
+     * Cached organization ID.
+     *
+     * This prevents multiple authorization middleware checks from trying
+     * to read the request body again after the handler has already consumed it.
+     */
+    organizationId?: string;
   };
 };
 
@@ -34,16 +42,27 @@ type Middleware = (
 
 /**
  * The organization the request is about: the query string when present
- * (GET/DELETE), the JSON body otherwise. The body is cloned because
- * middleware must not consume the stream.
+ * (GET/DELETE), the JSON body otherwise.
+ *
+ * The organization ID is cached in the Hono context so that multiple
+ * middleware checks during the same request don't try to read/clone the
+ * request body after it has already been consumed.
  */
 async function getOrganizationId(c: Context<ManagementEnv>): Promise<string> {
+  const cachedOrganizationId = c.get("organizationId");
+
+  if (cachedOrganizationId) {
+    return cachedOrganizationId;
+  }
+
   const organization_id = c.req.query("organization_id") ??
     (await c.req.raw.clone().json().catch(() => ({}))).organization_id;
 
   if (!organization_id) {
     throw new HTTPException(400, { message: "organization_id is required" });
   }
+
+  c.set("organizationId", organization_id);
 
   return organization_id;
 }
